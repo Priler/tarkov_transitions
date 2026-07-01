@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="windows-1251" ?>
+<string_table>
+	<!-- HUD countdown label. %s is the remaining seconds with one decimal -->
+	<string id="st_tarkov_extract_label">
+		<text>Переход через %s</text>
+	</string>
+
+	<!-- MCM -->
+	<string id="ui_mcm_menu_tarkov_transitions">
+		<text>Переходы в стиле Tarkov</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_title">
+		<text>Переходы между локациями в стиле Tarkov</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_duration">
+		<text>Секунды отсчёта</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_duration_desc">
+		<text>Сколько времени нужно оставаться в зоне перехода до перемещения. Выход из зоны отменяет отсчёт.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit">
+		<text>Открыть редактор позиции</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_desc">
+		<text>Вход в игру с панелью ползунков для перемещения, масштаба и прозрачности метки перехода в реальном времени. ESC для закрытия.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_pos_x">
+		<text>Позиция X (центр)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_pos_x_desc">
+		<text>Положение центра панели по горизонтали.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_pos_y">
+		<text>Позиция Y (центр)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_pos_y_desc">
+		<text>Положение центра панели по вертикали.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_scale">
+		<text>Масштаб панели</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_scale_desc">
+		<text>Множитель размера панели. Размер текста не меняется.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_alpha">
+		<text>Непрозрачность фона панели</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_alpha_desc">
+		<text>Прозрачность фона панели, от 10 (слабо) до 100 (плотно). У текста отсчёта своя настройка непрозрачности.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_dx">
+		<text>Смещение текста X</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_dx_desc">
+		<text>Сдвиг текста отсчёта по горизонтали внутри панели.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_dy">
+		<text>Смещение текста Y</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_dy_desc">
+		<text>Сдвиг текста отсчёта по вертикали внутри панели.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_font">
+		<text>Шрифт текста (семейство)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_font_desc">
+		<text>Семейство шрифта: Letterica, Graffiti или другой.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_size">
+		<text>Размер текста</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_size_desc">
+		<text>Размер в выбранном семействе. Растровые шрифты имеют фиксированные размеры, поэтому переключение идёт по ним.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_fade">
+		<text>Появление/исчезновение (секунды)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_fade_desc">
+		<text>Время плавного появления и исчезновения панели. 0 = мгновенно.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_r">
+		<text>Цвет текста R</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_g">
+		<text>Цвет текста G</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_b">
+		<text>Цвет текста B</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_alpha">
+		<text>Непрозрачность текста</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_alpha_desc">
+		<text>Прозрачность текста отсчёта, от 0 (невидимо) до 100 (плотно). Не зависит от непрозрачности фона панели.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_skin">
+		<text>Скин панели</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_skin_desc">
+		<text>Выбор оформления панели.</text>
+	</string>
+</string_table>

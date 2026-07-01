@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="windows-1251" ?>
+<string_table>
+	<!-- HUD countdown label. %s is the remaining seconds with one decimal -->
+	<string id="st_tarkov_extract_label">
+		<text>Transition in %s</text>
+	</string>
+
+	<!-- MCM -->
+	<string id="ui_mcm_menu_tarkov_transitions">
+		<text>Tarkov-like Transitions</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_title">
+		<text>Tarkov-like Level Transitions</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_duration">
+		<text>Countdown seconds</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_duration_desc">
+		<text
+        >How long you must stay inside a transition zone before you are moved. Leaving the zone cancels the countdown.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit">
+		<text>Open live position editor</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_desc">
+		<text
+        >Drop into the game with a slider panel to move, scale and fade the transition label live. Press ESC to close.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_pos_x">
+		<text>Position X (center)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_pos_x_desc">
+		<text>Horizontal screen position of the panel center.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_pos_y">
+		<text>Position Y (center)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_pos_y_desc">
+		<text>Vertical screen position of the panel center.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_scale">
+		<text>Panel scale</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_scale_desc">
+		<text>Size multiplier of the panel. Text size stays fixed.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_alpha">
+		<text>Panel background opacity</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_alpha_desc">
+		<text
+        >Transparency of the panel background, 10 (faint) to 100 (solid). The countdown text has its own opacity setting.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_dx">
+		<text>Text offset X</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_dx_desc">
+		<text>Move the countdown text horizontally inside the panel.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_dy">
+		<text>Text offset Y</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_dy_desc">
+		<text>Move the countdown text vertically inside the panel.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_font">
+		<text>Text font (family)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_font_desc">
+		<text>Font family: Letterica, Graffiti, or Other.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_size">
+		<text>Text size</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_size_desc">
+		<text
+        >Size within the chosen family. Bitmap fonts have fixed sizes, so this steps through them.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_fade">
+		<text>Fade in/out (seconds)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_fade_desc">
+		<text
+        >How long the panel fades in when it appears and out when it leaves. 0 = instant.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_r">
+		<text>Text color R</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_g">
+		<text>Text color G</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_b">
+		<text>Text color B</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_alpha">
+		<text>Text opacity</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_alpha_desc">
+		<text
+        >Transparency of the countdown text, 0 (invisible) to 100 (solid). Independent of the panel background opacity.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_skin">
+		<text>Panel skin</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_skin_desc">
+		<text>Choose the panel artwork.</text>
+	</string>
+</string_table>

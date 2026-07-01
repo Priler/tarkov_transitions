@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="windows-1251" ?>
+<!-- Centered HUD overlay for the area-transition countdown (Tarkov-style) -->
+<w_tarkov_transition>
+	<background x="347" y="248" width="330" height="220" stretch="1">
+		<texture>ui\tarkov_transition\gamma-lime</texture>
+	</background>
+	<label x="410" y="338" width="282" height="40">
+		<text font="letterica25" align="l" r="20" g="24" b="14" />
+	</label>
+</w_tarkov_transition>

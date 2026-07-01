@@ -1,0 +1,312 @@
+--[[
+    Tarkov like level transitions by Priler (https://github.com/Priler)
+    Github repo: https://github.com/Priler/tarkov_transitions
+
+    Instead of dumbass confirmation box or an auto-transition,
+    we show Tarkov like countdown while actor stays inside the transition zone.
+    Leaving the zone cancels it.
+--]]
+
+local ini = ini_file("sr_teleport_sections.ltx")
+
+-- only one countdown at a time, also keeps the active window alive against GC
+local active_ui = nil
+
+class "msg_box_ui" (CUIScriptWnd)
+function msg_box_ui:__init(obj,disable_msg,item) super()
+	self:SetWndRect(Frect():set(0,0,1024,768))
+	self:SetAutoDelete(true)
+
+	self.name = obj and obj:name()
+	self.disable_msg = disable_msg
+	self.item = item
+
+	if (string.find(self.name,obj:id())) then
+		local story_name = get_object_story_id(obj:id())
+		self.name = story_name or self.name
+	end
+
+	if (not self.name or not ini:section_exist(self.name)) then
+		printf("sr_teleport_sections.ltx: section doesn't exist %s",obj and obj:name())
+		return
+	end
+
+	if (alife_storage_manager.get_state().opened_routes ~= true) then
+		if not (( txr_routes.scan_route(self.name)) or mlr_utils.load_var("routes_"..self.name)) then
+			actor_menu.set_msg(1, game.translate_string("st_route_unknown"),5)
+			self:InitCallBacks()
+			self:OnMsgCancel()
+			return
+		end
+	end
+
+	self.obj = obj
+
+	self.message_box = CUIMessageBoxEx()
+	self:Register(self.message_box, "msg_box")
+	self:InitCallBacks()
+
+	-- scripted instant teleports (compass, story spheres: %=sr_teleport(true)%) skip the
+	-- countdown and keep stock item gating
+	-- only %=sr_teleport% zones get the countdown
+	if (self.disable_msg) then
+		self:InitControls()
+		return
+	end
+
+	self:StartCountdown()
+end
+
+function msg_box_ui:__finalize()
+    -- pass
+end
+
+function msg_box_ui:InitCallBacks()
+	self:AddCallback("msg_box",     ui_events.MESSAGE_BOX_OK_CLICKED,			self.OnMsgOk,						self)
+	self:AddCallback("msg_box",     ui_events.MESSAGE_BOX_CANCEL_CLICKED,		self.OnMsgCancel,					self)
+	self:AddCallback("msg_box",     ui_events.MESSAGE_BOX_YES_CLICKED,			self.OnMsgOk,						self)
+	self:AddCallback("msg_box",     ui_events.MESSAGE_BOX_NO_CLICKED,			self.OnMsgCancel,					self)
+end
+
+function msg_box_ui:StartCountdown()
+	if (active_ui) then
+		return
+	end
+
+	self.restrictor = self.obj
+	self.duration_ms = tarkov_transitions_mcm.get_duration() * 1000
+	self.elapsed = 0
+	self.last = time_global()
+	self.done = false
+	self.appear_at = time_global()
+	self.fade_ms = tarkov_transitions_mcm.get_fade() * 1000
+	self.fading_out = false
+
+	self.panel = tarkov_transitions_mcm.build_panel(self)
+
+	local hud = get_hud()
+	if not (hud) then
+		-- no hud to draw on: fall back to a normal teleport so the player is not stuck
+		self:OnMsgOk()
+		return
+	end
+
+	hud:AddDialogToRender(self)
+	self._hud = true
+	active_ui = self
+
+	-- save/load or level change mid-countdown must release the window and the lock
+	RegisterScriptCallback("actor_on_net_destroy", self)
+	self._net_cb = true
+
+	-- start invisible
+	-- the first Update fades it in
+	tarkov_transitions_mcm.apply_layout(self.panel, 0)
+	self:SetLabel(self.duration_ms / 1000)
+end
+
+-- 0..1 fade-in multiplier based on how long the panel has been up
+function msg_box_ui:FadeInMul()
+	if (self.fade_ms <= 0) then return 1 end
+	local k = (time_global() - self.appear_at) / self.fade_ms
+	if (k > 1) then k = 1 end
+	return k
+end
+
+function msg_box_ui:SetLabel(remaining_sec)
+	local num = string.format("%.1f", remaining_sec)
+	self.panel.label:SetText(strformat(game.translate_string("st_tarkov_extract_label"), num))
+end
+
+function msg_box_ui:Update()
+	CUIScriptWnd.Update(self)
+	if (self.done) then
+		return
+	end
+
+	local now = time_global()
+
+	-- fading out: animate alpha to 0, then tear down
+	if (self.fading_out) then
+		local k = (self.fade_ms <= 0) and 1 or ((now - self.fade_out_at) / self.fade_ms)
+		if (k >= 1) then
+			self.done = true
+			self:Teardown()
+			return
+		end
+		tarkov_transitions_mcm.apply_layout(self.panel, 1 - k)
+		return
+	end
+
+	local dt = now - (self.last or now)
+	self.last = now
+	-- ignore huge frame gaps (alt-tab, loading, a menu that froze updates) so the
+	-- countdown never jumps forward after a stall
+	if (dt > 500) then dt = 0 end
+
+	-- frozen in a menu / pause: hold the countdown, do not count leaving as exit
+	if (device():is_paused()) then
+		tarkov_transitions_mcm.apply_layout(self.panel, self:FadeInMul())
+		return
+	end
+
+	if not (db.actor and self.restrictor and self.restrictor:inside(db.actor:position())) then
+		self:CancelCountdown()
+		return
+	end
+
+	self.elapsed = self.elapsed + dt
+	local remaining = self.duration_ms - self.elapsed
+	if (remaining <= 0) then
+		self:FinishCountdown()
+		return
+	end
+
+	tarkov_transitions_mcm.apply_layout(self.panel, self:FadeInMul())
+	self:SetLabel(remaining / 1000)
+end
+
+function msg_box_ui:actor_on_net_destroy()
+	self.done = true
+	self:Teardown()
+end
+
+function msg_box_ui:Teardown()
+	if (self._net_cb) then
+		UnregisterScriptCallback("actor_on_net_destroy", self)
+		self._net_cb = false
+	end
+	if (self._hud) then
+		local hud = get_hud()
+		if (hud) then
+			hud:RemoveDialogToRender(self)
+		end
+		self._hud = false
+	end
+	if (active_ui == self) then
+		active_ui = nil
+	end
+end
+
+-- start the fade-out
+-- update tears the panel down once it reaches zero alpha
+function msg_box_ui:BeginFadeOut()
+	if (self.done or self.fading_out) then
+		return
+	end
+	self.fading_out = true
+	self.fade_out_at = time_global()
+end
+
+-- actor left the zone (or no longer valid): abort, no teleport, re-armable on re-entry
+function msg_box_ui:CancelCountdown()
+	self:BeginFadeOut()
+end
+
+-- countdown reached zero with the actor still inside: fade out and do the real travel
+function msg_box_ui:FinishCountdown()
+	if (self.done or self.fading_out) then
+		return
+	end
+	self:BeginFadeOut()
+	self:OnMsgOk()
+end
+
+-- travel: unchanged stock logic
+function msg_box_ui:OnMsgOk()
+	local pos = ini:r_string_ex(self.name,"position")
+	local path = pos == nil and ini:r_string_ex(self.name,"path")
+	local point = path and patrol(path)
+
+	if not (pos or point) then
+		return
+	end
+
+	level.add_pp_effector("sleep_fade.ppe", 1313, false)
+
+	local function travel()
+		local tonum = tonumber
+		if (ini:r_bool_ex(self.name,"autosave",false)) then
+			xr_effects.scenario_autosave(nil,nil,{ini:r_string_ex(self.name,"hint") or "moving"})
+		end
+
+		local p = pos and str_explode(pos,",")
+		pos = p and vector():set(tonum(p[1]),tonum(p[2]),tonum(p[3]))
+
+		local allow_car = ini:r_bool_ex(self.name,"allow_vehicle",true)
+		if (allow_car) then
+			local car = db.actor:get_attached_vehicle()
+			if (car) then
+				car:force_set_position(pos or point and point:point(0))
+			else
+				db.actor:set_actor_position(pos or point and point:point(0))
+			end
+		else
+			local car = db.actor:get_attached_vehicle()
+			if (car) then
+				db.actor:detach_vehicle()
+
+				local cpos = ini:r_string_ex(self.name,"reject")
+				local cpath = cpos == nil and ini:r_string_ex(self.name,"reject_path")
+				local cpoint = cpath and patrol(cpath)
+
+				local cp = cpos and str_explode(cpos,",")
+				cpos = cp and vector():set(tonum(cp[1]) or 0,tonum(cp[2]) or 0,tonum(cp[3]) or 0)
+
+				if (cpos or cpoint) then
+					TeleportObject(car:id(),cpos or cpoint and cpoint:point(0),cpoint and cpoint:level_vertex_id(0),cpoint and cpoint:game_vertex_id(0))
+				end
+			end
+			db.actor:set_actor_position(pos or point and point:point(0) or db.actor:position())
+		end
+
+		if (pos and p[4]) then
+			db.actor:set_actor_direction(tonum(p[4]) or 0)
+		end
+
+		return true
+	end
+
+	SendScriptCallback("on_before_level_changing")
+
+	CreateTimeEvent(0,"delay_travel",3,travel)
+end
+
+function msg_box_ui:OnMsgCancel()
+	local tonum = tonumber
+	local pos = ini:r_string_ex(self.name,"reject")
+	local path = pos == nil and ini:r_string_ex(self.name,"reject_path")
+	local point = path and patrol(path)
+
+	if not (pos or point) then
+		return
+	end
+
+	local p = pos and str_explode(pos,",")
+	pos = p and vector():set(tonum(p[1]) or 0,tonum(p[2]) or 0,tonum(p[3]) or 0)
+
+	db.actor:set_actor_position(pos or point and point:point(0) or db.actor:position())
+	if (pos and p[4]) then
+		db.actor:set_actor_direction(tonum(p[4]) or 0)
+		return
+	end
+	db.actor:set_actor_direction(-device().cam_dir:getH())
+end
+
+function msg_box_ui:InitControls()
+	if (self.disable_msg) then
+		if (not self.item or db.actor:object(self.item)) then
+			self:OnMsgOk()
+		else
+			self:OnMsgCancel()
+		end
+		return
+	end
+
+	self.message_box:InitMessageBox("message_box_yes_no")
+	self.message_box:ShowDialog(true)
+	local next_level = game.translate_string(ini:r_string_ex(self.name,"hint") or "")
+	local msg_str = game.translate_string("st_level_changer_descr")
+	local str = strformat(msg_str, next_level)
+	self.message_box:SetText(str)
+end

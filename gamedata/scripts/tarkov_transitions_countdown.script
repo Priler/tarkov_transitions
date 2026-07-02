@@ -1,0 +1,193 @@
+--[[
+    Tarkov like level transitions by Priler (https://github.com/Priler)
+    Github repo: https://github.com/Priler/tarkov_transitions
+
+    Shared countdown window for transition systems that are not the vanilla
+    sr_teleport scheme (that one keeps its own copy in ui_sr_teleport.script,
+    since the engine calls it directly).
+
+    A caller hands in two closures:
+      is_inside() : bool  - actor still in the trigger zone this frame
+      on_finish() : void  - perform the actual travel
+
+    Everything else (fade, hud render, pause/stall handling, the single-active
+    lock, the label) lives here, so each compat shim stays a few lines.
+
+    Usage:
+      tarkov_transitions_countdown.start({ is_inside = fn, on_finish = fn })
+--]]
+
+-- one countdown at a time across every non-vanilla source, also keeps the
+-- live window alive against GC
+local active = nil
+
+class "tarkov_countdown_window" (CUIScriptWnd)
+function tarkov_countdown_window:__init(is_inside, on_finish) super()
+	self:SetWndRect(Frect():set(0, 0, 1024, 768))
+	self:SetAutoDelete(true)
+	self.done = false
+	self.is_inside = is_inside
+	self.on_finish = on_finish
+end
+
+function tarkov_countdown_window:__finalize()
+end
+
+function tarkov_countdown_window:Begin()
+	local m = tarkov_transitions_mcm
+	self.duration_ms = m.get_duration() * 1000
+	self.elapsed = 0
+	self.last = time_global()
+	self.appear_at = time_global()
+	self.fade_ms = m.get_fade() * 1000
+	self.fading_out = false
+
+	self.panel = m.build_panel(self)
+
+	local hud = get_hud()
+	if not (hud) then
+		-- no hud to draw on: fall back to an immediate travel so the player is not stuck
+		self:DoTravel()
+		return
+	end
+
+	hud:AddDialogToRender(self)
+	self._hud = true
+	active = self
+
+	-- save/load or level change mid-countdown must release the window and the lock
+	RegisterScriptCallback("actor_on_net_destroy", self)
+	self._net_cb = true
+
+	-- start invisible
+	-- the first Update fades it in
+	m.apply_layout(self.panel, 0)
+	self:SetLabel(self.duration_ms / 1000)
+end
+
+-- 0..1 fade-in multiplier based on how long the panel has been up
+function tarkov_countdown_window:FadeInMul()
+	if (self.fade_ms <= 0) then return 1 end
+	local k = (time_global() - self.appear_at) / self.fade_ms
+	if (k > 1) then k = 1 end
+	return k
+end
+
+function tarkov_countdown_window:SetLabel(remaining_sec)
+	local num = string.format("%.1f", remaining_sec)
+	self.panel.label:SetText(strformat(game.translate_string("st_tarkov_extract_label"), num))
+end
+
+function tarkov_countdown_window:Update()
+	CUIScriptWnd.Update(self)
+	if (self.done) then
+		return
+	end
+
+	local m = tarkov_transitions_mcm
+	local now = time_global()
+
+	-- fading out: animate alpha to 0, then tear down
+	if (self.fading_out) then
+		local k = (self.fade_ms <= 0) and 1 or ((now - self.fade_out_at) / self.fade_ms)
+		if (k >= 1) then
+			self.done = true
+			self:Teardown()
+			return
+		end
+		m.apply_layout(self.panel, 1 - k)
+		return
+	end
+
+	local dt = now - (self.last or now)
+	self.last = now
+	-- ignore huge frame gaps (alt-tab, loading, a frozen menu) so the countdown
+	-- never jumps forward after a stall
+	if (dt > 500) then dt = 0 end
+
+	-- frozen in a menu / pause: hold the countdown, do not count leaving as exit
+	if (device():is_paused()) then
+		m.apply_layout(self.panel, self:FadeInMul())
+		return
+	end
+
+	if not (self.is_inside()) then
+		self:CancelCountdown()
+		return
+	end
+
+	self.elapsed = self.elapsed + dt
+	local remaining = self.duration_ms - self.elapsed
+	if (remaining <= 0) then
+		self:FinishCountdown()
+		return
+	end
+
+	m.apply_layout(self.panel, self:FadeInMul())
+	self:SetLabel(remaining / 1000)
+end
+
+function tarkov_countdown_window:actor_on_net_destroy()
+	self.done = true
+	self:Teardown()
+end
+
+function tarkov_countdown_window:Teardown()
+	if (self._net_cb) then
+		UnregisterScriptCallback("actor_on_net_destroy", self)
+		self._net_cb = false
+	end
+	if (self._hud) then
+		local hud = get_hud()
+		if (hud) then
+			hud:RemoveDialogToRender(self)
+		end
+		self._hud = false
+	end
+	if (active == self) then
+		active = nil
+	end
+end
+
+-- start the fade-out
+-- update tears the panel down once it reaches zero alpha
+function tarkov_countdown_window:BeginFadeOut()
+	if (self.done or self.fading_out) then
+		return
+	end
+	self.fading_out = true
+	self.fade_out_at = time_global()
+end
+
+-- actor left the zone (or object gone): abort, no travel, re-armable on re-entry
+function tarkov_countdown_window:CancelCountdown()
+	self:BeginFadeOut()
+end
+
+-- countdown hit zero with the actor still inside: fade out and travel
+function tarkov_countdown_window:FinishCountdown()
+	if (self.done or self.fading_out) then
+		return
+	end
+	self:BeginFadeOut()
+	self:DoTravel()
+end
+
+function tarkov_countdown_window:DoTravel()
+	if (self.on_finish) then
+		self.on_finish()
+	end
+end
+
+-- entry point: start a countdown unless one is already running
+function start(opts)
+	if (active) then
+		return nil
+	end
+	if not (opts and opts.is_inside and opts.on_finish) then
+		return nil
+	end
+	local w = tarkov_countdown_window(opts.is_inside, opts.on_finish)
+	w:Begin()
+	return w
+end

@@ -1,0 +1,57 @@
+--[[
+    Tarkov like level transitions by Priler (https://github.com/Priler)
+    Github repo: https://github.com/Priler/tarkov_transitions
+
+    Optional compatibility layer for Extra Level Transitions by Demonized.
+
+    Extra's points do not use the vanilla sr_teleport scheme, so the stock
+    Tarkov countdown never reaches them.
+    They run their own physics-object restrictors and pop a plain yes/no box before travelling.
+
+    This layer swaps ONLY that confirm step for the shared Tarkov countdown.
+    Travel itself stays Extra's: we hand off to lc_extra_transitions.teleport_actor,
+    which keeps the cross-level ChangeLevel, time advance, sound and on_teleport
+    condlist.
+
+    Does nothing unless Extra is installed.
+--]]
+
+-- Extra restrictors are physics objects, not space restrictors, so there is no :inside()
+-- Match Extra's own proximity test: distance vs trigger_radius
+local function actor_inside(obj)
+	if not (obj and db.actor) then return false end
+	local r = SYS_GetParam(2, obj:section(), "trigger_radius", 6)
+	return obj:position():distance_to_sqr(db.actor:position()) <= r * r
+end
+
+local function show_countdown(obj_id)
+	tarkov_transitions_countdown.start({
+		is_inside = function()
+			return actor_inside(obj_id and level.object_by_id(obj_id))
+		end,
+		on_finish = function()
+			local obj = obj_id and level.object_by_id(obj_id)
+			if (obj) then
+				lc_extra_transitions.teleport_actor(db.actor, obj)
+			end
+		end,
+	})
+end
+
+-- Extra calls create_dialog() then dialog:SetObj(obj) then dialog:Show()
+-- Return a tiny driver whose Show starts the countdown instead of a yes/no box
+local function make_dialog()
+	local d = {}
+	function d:SetObj(obj)
+		self.obj_id = obj and obj:id()
+	end
+	function d:Show()
+		show_countdown(self.obj_id)
+	end
+	return d
+end
+
+-- Referencing the namespaces here also force-loads Extra's UI before we patch it
+if (lc_extra_transitions and lc_extra_transitions_ui) then
+	lc_extra_transitions_ui.create_dialog = make_dialog
+end

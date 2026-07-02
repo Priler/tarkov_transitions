@@ -332,7 +332,7 @@ function UITarkovEdit:InitControls()
 	self.dialog = xml:InitStatic("ctrl_lighting", self)
 	self.frame = xml:InitFrame("ctrl_lighting:frame", self.dialog)
 	local cap = xml:InitStatic("ctrl_lighting:cap_main", self.dialog)
-	cap:TextControl():SetText("Transition label - position / scale / opacity")
+	cap:TextControl():SetText(game.translate_string("ui_mcm_tarkov_transitions_live_edit_caption"))
 	self.scroll = xml:InitScrollView("ctrl_lighting:scroll", self.dialog)
 	self.scroll:Clear()
 

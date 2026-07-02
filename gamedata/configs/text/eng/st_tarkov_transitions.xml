@@ -26,6 +26,9 @@
 		<text
         >Drop into the game with a slider panel to move, scale and fade the transition label live. Press ESC to close.</text>
 	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_caption">
+		<text>Transition label - position / scale / opacity</text>
+	</string>
 	<string id="ui_mcm_tarkov_transitions_pos_x">
 		<text>Position X (center)</text>
 	</string>
@@ -86,11 +89,20 @@
 	<string id="ui_mcm_tarkov_transitions_text_r">
 		<text>Text color R</text>
 	</string>
+	<string id="ui_mcm_tarkov_transitions_text_r_desc">
+		<text>Red channel of the countdown text color, 0 to 255.</text>
+	</string>
 	<string id="ui_mcm_tarkov_transitions_text_g">
 		<text>Text color G</text>
 	</string>
+	<string id="ui_mcm_tarkov_transitions_text_g_desc">
+		<text>Green channel of the countdown text color, 0 to 255.</text>
+	</string>
 	<string id="ui_mcm_tarkov_transitions_text_b">
 		<text>Text color B</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_b_desc">
+		<text>Blue channel of the countdown text color, 0 to 255.</text>
 	</string>
 	<string id="ui_mcm_tarkov_transitions_text_alpha">
 		<text>Text opacity</text>

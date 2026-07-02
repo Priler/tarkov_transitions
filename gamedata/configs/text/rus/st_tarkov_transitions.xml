@@ -99,4 +99,16 @@
 	<string id="ui_mcm_tarkov_transitions_skin_desc">
 		<text>Выбор оформления панели.</text>
 	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_caption">
+		<text>Метка перехода - положение / размер / прозрачность</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_r_desc">
+		<text>Красный канал цвета текста отсчёта, от 0 до 255.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_g_desc">
+		<text>Зелёный канал цвета текста отсчёта, от 0 до 255.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_text_b_desc">
+		<text>Синий канал цвета текста отсчёта, от 0 до 255.</text>
+	</string>
 </string_table>

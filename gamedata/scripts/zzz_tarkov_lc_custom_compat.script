@@ -1,0 +1,49 @@
+--[[
+    Tarkov like level transitions by Priler (https://github.com/Priler)
+    Github repo: https://github.com/Priler/tarkov_transitions
+
+    Optional compatibility layer for "Garbage Transition Point in Rostok CLOSER"
+    (its lc_custom.script system).
+
+    That mod does not use sr_teleport or lc_extra_transitions.
+    Its logic teleports the actor instantly the moment they walk within 10m, straight from the
+    condlist: %=script(lc_custom:teleport_actor)%.
+    No confirm step at all.
+
+    There is no dialog to swap, so we intercept lc_custom.teleport_actor itself:
+    on trigger we start the shared Tarkov countdown instead of jumping, and only
+    call the original teleport once the countdown completes with the actor still
+    inside the zone.
+
+    Does nothing unless Extra is installed.
+--]]
+
+-- the mod's condlist gate is dist_to_actor_le(10), so match that radius here
+local TRIGGER_RADIUS = 10
+
+-- captured before we override, called to perform the real jump on finish
+local orig_teleport = nil
+
+local function actor_inside(obj)
+	if not (obj and db.actor) then return false end
+	return obj:position():distance_to_sqr(db.actor:position()) <= TRIGGER_RADIUS * TRIGGER_RADIUS
+end
+
+-- Referencing lc_custom here also force-loads it before we capture the original
+if (lc_custom and lc_custom.teleport_actor) then
+	orig_teleport = lc_custom.teleport_actor
+	lc_custom.teleport_actor = function(actor, obj)
+		local obj_id = obj and obj:id()
+		tarkov_transitions_countdown.start({
+			is_inside = function()
+				return actor_inside(obj_id and level.object_by_id(obj_id))
+			end,
+			on_finish = function()
+				local o = obj_id and level.object_by_id(obj_id)
+				if (o and orig_teleport) then
+					orig_teleport(db.actor, o)
+				end
+			end,
+		})
+	end
+end

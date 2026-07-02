@@ -29,11 +29,23 @@ local function actor_inside(obj)
 	return obj:position():distance_to_sqr(db.actor:position()) <= TRIGGER_RADIUS * TRIGGER_RADIUS
 end
 
+-- Normalize whatever the caller passes (client game_object, server object, raw
+-- id, or nil) to an id without ever throwing
+local function to_obj_id(obj)
+	if not (obj) then return nil end
+	if (type(obj) == "number") then return obj end
+	local ok, id = pcall(function() return obj:id() end)
+	if (ok and type(id) == "number") then return id end
+	ok, id = pcall(function() return obj.id end)
+	if (ok and type(id) == "number") then return id end
+	return nil
+end
+
 -- Referencing lc_custom here also force-loads it before we capture the original
 if (lc_custom and lc_custom.teleport_actor) then
 	orig_teleport = lc_custom.teleport_actor
 	lc_custom.teleport_actor = function(actor, obj)
-		local obj_id = obj and obj:id()
+		local obj_id = to_obj_id(obj)
 		tarkov_transitions_countdown.start({
 			is_inside = function()
 				return actor_inside(obj_id and level.object_by_id(obj_id))

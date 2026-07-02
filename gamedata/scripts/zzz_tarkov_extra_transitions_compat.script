@@ -38,20 +38,46 @@ local function show_countdown(obj_id)
 	})
 end
 
+-- Extra builds differ in what they hand SetObj: a client game_object (:id()
+-- method), a server/alife object (.id field), a raw id, or nil
+-- Normalize to an id without ever throwing - a compat shim must never crash the base game.
+local function to_obj_id(obj)
+	if not (obj) then return nil end
+	if (type(obj) == "number") then return obj end
+	local ok, id = pcall(function() return obj:id() end)
+	if (ok and type(id) == "number") then return id end
+	ok, id = pcall(function() return obj.id end)
+	if (ok and type(id) == "number") then return id end
+	return nil
+end
+
 -- Extra calls create_dialog() then dialog:SetObj(obj) then dialog:Show()
 -- Return a tiny driver whose Show starts the countdown instead of a yes/no box
 local function make_dialog()
 	local d = {}
 	function d:SetObj(obj)
-		self.obj_id = obj and obj:id()
+		self.obj_id = to_obj_id(obj)
 	end
 	function d:Show()
 		show_countdown(self.obj_id)
 	end
+	function d:OnMsgOk()
+		show_countdown(self.obj_id)
+	end
+	function d:OnMsgCancel()
+	end
 	return d
 end
 
+-- Some forks (i.e. Akagi's Randomizer) overhaul Extra with an incompatible dialog contract.
+-- Fuck those for now t(-_-t)
+-- Hook only the stock Demonized contract
+local function is_akagi_fork()
+	local ok, present = pcall(function() return z_akagi_open_routes_manager ~= nil end)
+	return ok and present
+end
+
 -- Referencing the namespaces here also force-loads Extra's UI before we patch it
-if (lc_extra_transitions and lc_extra_transitions_ui) then
+if (lc_extra_transitions and lc_extra_transitions_ui and not is_akagi_fork()) then
 	lc_extra_transitions_ui.create_dialog = make_dialog
 end

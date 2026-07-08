@@ -1,0 +1,77 @@
+--[[
+    Tarkov like level transitions by Priler (https://github.com/Priler)
+    Github repo: https://github.com/Priler/tarkov_transitions
+
+    Optional compatibility layer for Akagi's Randomizer.
+
+    Does nothing unless Akagi's Randomizer is installed.
+--]]
+
+-- actor-inside test for a transition section, mirroring is_actor_inside_lc:
+-- an ellipse in the XZ plane (rad_ns / rad_ew) with an optional height band
+local function actor_inside(sec)
+	if not (db.actor and sec) then return false end
+	local v = lc_extra_transitions.orig_lc_pool[sec]
+	if not (v) or (v.disable) or not (v.c_pos and v.rad_ns and v.rad_ew) then return false end
+	if (v.rad_ew == 0) then return false end
+
+	local ap = db.actor:position()
+	local y = ap.y - v.c_pos.y
+	if (v.height == "int") and ((y > 2.6) or (y < -1)) then return false end
+
+	local x = ap.x - v.c_pos.x
+	local z = ap.z - v.c_pos.z
+	local r = v.rad_ns / v.rad_ew
+	local d = math.sqrt(x*x*r*r + z*z)
+	return d <= v.rad_ns
+end
+
+local function start_countdown(sec)
+	if not (sec) then return end
+	local w = tarkov_transitions_countdown.start({
+		is_inside = function()
+			return actor_inside(sec)
+		end,
+		on_finish = function()
+			lc_extra_transitions.teleport_actor(db.actor, sec)
+		end,
+		-- clears Akagi's spawn gate
+		on_cancel = function()
+			lc_extra_transitions.cancel_teleport(db.actor, sec)
+		end,
+	})
+	-- start refuses when another countdown is already live
+	if not (w) then
+		lc_extra_transitions.cancel_teleport(db.actor, sec)
+	end
+end
+
+-- Akagi calls create_dialog(), then dialog:SetObj(sec, is_lockdown), then
+-- dialog:Show() (or dialog:OnMsgOk() when its "seamless" message mode is set)
+local function make_dialog()
+	local d = {}
+	function d:Reset()
+		self.sec = nil
+	end
+	function d:SetObj(sec, is_lockdown)
+		self.sec = sec
+	end
+	function d:Show()
+		start_countdown(self.sec)
+	end
+	function d:OnMsgOk()
+		start_countdown(self.sec)
+	end
+	function d:OnMsgCancel()
+		if (self.sec) then
+			lc_extra_transitions.cancel_teleport(db.actor, self.sec)
+		end
+	end
+	return d
+end
+
+-- Referencing the namespaces here also force-loads Akagi before we patch it
+-- z_akagi_open_routes_manager is Akagi-only
+if (lc_extra_transitions and lc_extra_transitions_ui and z_akagi_open_routes_manager) then
+	lc_extra_transitions_ui.create_dialog = make_dialog
+end

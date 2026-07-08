@@ -21,13 +21,19 @@
 -- live window alive against GC
 local active = nil
 
+-- true while a shared countdown window is live
+function is_active()
+	return active ~= nil
+end
+
 class "tarkov_countdown_window" (CUIScriptWnd)
-function tarkov_countdown_window:__init(is_inside, on_finish) super()
+function tarkov_countdown_window:__init(is_inside, on_finish, on_cancel) super()
 	self:SetWndRect(Frect():set(0, 0, 1024, 768))
 	self:SetAutoDelete(true)
 	self.done = false
 	self.is_inside = is_inside
 	self.on_finish = on_finish
+	self.on_cancel = on_cancel
 end
 
 function tarkov_countdown_window:__finalize()
@@ -161,6 +167,14 @@ end
 
 -- actor left the zone (or object gone): abort, no travel, re-armable on re-entry
 function tarkov_countdown_window:CancelCountdown()
+	if (self.done or self.fading_out) then
+		return
+	end
+
+	-- let the caller react to the abort
+	if (self.on_cancel) then
+		self.on_cancel()
+	end
 	self:BeginFadeOut()
 end
 
@@ -184,10 +198,15 @@ function start(opts)
 	if (active) then
 		return nil
 	end
+
+	-- the vanilla sr_teleport countdown is a separate window with its own lock
+	if (ui_sr_teleport and ui_sr_teleport.is_countdown_active and ui_sr_teleport.is_countdown_active()) then
+		return nil
+	end
 	if not (opts and opts.is_inside and opts.on_finish) then
 		return nil
 	end
-	local w = tarkov_countdown_window(opts.is_inside, opts.on_finish)
+	local w = tarkov_countdown_window(opts.is_inside, opts.on_finish, opts.on_cancel)
 	w:Begin()
 	return w
 end

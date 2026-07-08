@@ -111,4 +111,52 @@
 	<string id="ui_mcm_tarkov_transitions_text_b_desc">
 		<text>Синий канал цвета текста отсчёта, от 0 до 255.</text>
 	</string>
+	<string id="ui_mcm_tarkov_transitions_activation_dist">
+		<text>Дистанция активации (м)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_activation_dist_desc">
+		<text>Насколько близко нужно подойти к зоне перехода, чтобы начался отсчет (в метрах). 0 = только когда вы внутри зоны (по умолчанию). Большие значения запускают переход издалека.</text>
+	</string>
+
+	<!-- subcategory tree labels -->
+	<string id="ui_mcm_menu_tarkov_transitions_general">
+		<text>Общие</text>
+	</string>
+	<string id="ui_mcm_menu_tarkov_transitions_companions">
+		<text>Напарники</text>
+	</string>
+
+	<!-- Paid Companions subcategory -->
+	<string id="ui_mcm_tarkov_transitions_companions_title">
+		<text>Предупреждение о напарниках</text>
+	</string>
+	<string id="st_tarkov_companion_leave_label">
+		<text>Напарник уйдет через %s</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_warn_duration">
+		<text>Секунды предупреждения</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_warn_duration_desc">
+		<text>Сколько держится красное предупреждение, прежде чем платные напарники уйдут. Выйдите из зоны, чтобы отменить. Требует Paid Companion Transition Warning.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_cp">
+		<text>Открыть редактор панели напарников</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_cp_desc">
+		<text>Войти в игру с ползунками для перемещения, масштаба и цвета текста предупреждения. ESC для закрытия.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_cp_caption">
+		<text>Панель напарников - позиция / масштаб / прозрачность</text>
+	</string>
+
+	<!-- Debug subcategory -->
+	<string id="ui_mcm_menu_tarkov_transitions_debug">
+		<text>Отладка</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_debug_any_companions">
+		<text>Отладка: считать любого напарника</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_debug_any_companions_desc">
+		<text>Только для тестов. Когда включено, предупреждение о напарнике срабатывает (и увольняет) для ЛЮБОГО напарника, а не только платного. Позволяет проверить предупреждение без найма платного напарника.</text>
+	</string>
 </string_table>

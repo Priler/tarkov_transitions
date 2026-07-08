@@ -3,20 +3,34 @@
     Github repo: https://github.com/Priler/tarkov_transitions
 
     MCM stuff
+
+    Two panel profilesr:
+      general    - the normal transition countdown panel
+      companions - the red "companion will leave" warning panel (paid-companion compat)
 --]]
 
 local MOD_ID = "tarkov_transitions"
 
--- skins are 2:1 ratio (512x256)
--- 1024x768 canvas stretches to fit screen so width is aspect corrected at runtime to prevent stretching
-local TEX_ASPECT = 512 / 256
+-- general skins are 2:1
+-- the companion skin is 3:1
+-- 1024x768 canvas stretches to fit screen so width is aspect corrected at runtime
 local BASE_H = 220       -- panel height at scale 1.0 (virtual units)
-local ICON_FRAC = 0.26   -- text start x as a fraction of the texture (right of the baked icon)
 local FONT_H = 26        -- approx text height, for default vertical centering
+local ICON_FRAC = 0.26   -- general text start x as a fraction of the texture
 
--- selectable panel skins
--- value = dds basename in textures\ui\tarkov_transition\<value>.dds
 local SKIN_DIR = "ui\\tarkov_transition\\"
+
+-- fixed skin for the companion warning panel
+local CP_SKIN = "companion_cancel"
+
+-- per-profile geometry
+local PROFILES = {
+	general    = { cat = "general",    tex_aspect = 512 / 256, base_h = BASE_H, centered = false, icon_frac = ICON_FRAC },
+	companions = { cat = "companions", tex_aspect = 768 / 256, base_h = BASE_H, centered = true,  icon_frac = 0 },
+}
+
+-- selectable panel skins (general profile only)
+-- value = dds basename in textures\ui\tarkov_transition\<value>.dds
 local SKINS = {
 	{ "tarkov-lime",        "Tarkov Lime" },
 	{ "tarkov-orange",      "Tarkov Orange" },
@@ -70,78 +84,104 @@ local function resolve_size(fam_idx, size_idx)
 	return fam.sizes[si + 1]
 end
 
+-- shared layout keys
 local defaults = {
-	duration = 5,
-	pos_x = 512,   -- panel CENTER x
-	pos_y = 646,   -- panel CENTER y
-	scale = 0.45,
-	alpha = 75,    -- panel background opacity percent
-	text_dx = 4,   -- text nudge from its default spot in the panel
-	text_dy = 4,
-	text_font = 0, -- font family index (Letterica)
-	text_size = 2, -- size index within the family (25)
-	text_r = 20,   -- text color
-	text_g = 24,
-	text_b = 14,
-	text_alpha = 100, -- text opacity percent, independent of the panel background
-	skin = 4,      -- index into SKINS (Gamma Lime)
-	fade = 0.3,    -- fade in/out duration, seconds (0 = instant)
+	general = {
+		duration = 5,
+		activation_dist = 0, -- meters: arm the countdown within this radius of a zone (0 = only when physically inside)
+		fade = 0.3,          -- fade in/out duration, seconds (0 = instant)
+		pos_x = 512,         -- panel CENTER x
+		pos_y = 646,         -- panel CENTER y
+		scale = 0.45,
+		alpha = 75,          -- panel background opacity percent
+		text_dx = 4,         -- text nudge from its default spot in the panel
+		text_dy = 4,
+		text_font = 0,       -- font family index (Letterica)
+		text_size = 2,       -- size index within the family (25)
+		text_r = 20,
+		text_g = 24,
+		text_b = 14,
+		text_alpha = 100,    -- text opacity percent, independent of the panel background
+		skin = 4,            -- index into SKINS (Gamma Lime)
+	},
+	companions = {
+		warn_duration = 15,  -- seconds the companion warning holds before they leave
+		pos_x = 512,
+		pos_y = 560,
+		scale = 0.6,
+		alpha = 100,
+		text_dx = 0,
+		text_dy = 0,
+		text_font = 0,
+		text_size = 1,       -- Letterica 18
+		text_r = 255,
+		text_g = 255,
+		text_b = 255,
+		text_alpha = 100,
+	},
+	debug = {
+		any_companions = false, -- warn/dismiss for ANY companion, not just paid (testing only!!!)
+	},
 }
 
-local function mcm_path(key)
-	return MOD_ID .. "/" .. key
+local function mcm_path(cat, key)
+	return MOD_ID .. "/" .. cat .. "/" .. key
 end
 
-local function getv(key)
+local function getv(cat, key)
 	if (ui_mcm) then
-		local v = ui_mcm.get(mcm_path(key))
+		local v = ui_mcm.get(mcm_path(cat, key))
 		if (v ~= nil) then return v end
 	end
-	return defaults[key]
+	return defaults[cat][key]
 end
 
-function get_duration()   return getv("duration") end
-function get_pos_x()      return getv("pos_x") end
-function get_pos_y()      return getv("pos_y") end
-function get_scale()      return getv("scale") end
-function get_alpha()      return getv("alpha") end
-function get_text_dx()    return getv("text_dx") end
-function get_text_dy()    return getv("text_dy") end
-function get_text_font()  return getv("text_font") end
-function get_text_size()  return getv("text_size") end
-function get_text_r()     return getv("text_r") end
-function get_text_g()     return getv("text_g") end
-function get_text_b()     return getv("text_b") end
-function get_text_alpha() return getv("text_alpha") end
-function get_skin()       return getv("skin") end
-function get_fade()       return getv("fade") end
+-- public getters
+function get_duration()        return getv("general", "duration") end
+function get_activation_dist() return getv("general", "activation_dist") end
+function get_fade()            return getv("general", "fade") end
+function get_warn_duration()   return getv("companions", "warn_duration") end
+function get_debug_any_companions() return getv("debug", "any_companions") == true end
+
+local function skin_for(cat)
+	if (cat == "companions") then
+		return SKIN_DIR .. CP_SKIN
+	end
+	return SKIN_DIR .. SKINS[skin_clamp(getv("general", "skin")) + 1][1]
+end
 
 -- shared panel: built once per overlay, re-laid-out every frame from the settings
-function build_panel(owner)
+function build_panel(owner, cat)
+	cat = cat or "general"
 	local xml = CScriptXmlInit()
 	xml:ParseFile("ui_tarkov_transition.xml")
 	local bg = xml:InitStatic("background", owner)
-	local label = xml:InitTextWnd("label", owner)
-	return { xml = xml, bg = bg, label = label }
+
+	-- companion panel has no icon - use the centered label control
+	local label_ctrl = PROFILES[cat].centered and "label_center" or "label"
+	local label = xml:InitTextWnd(label_ctrl, owner)
+	return { xml = xml, bg = bg, label = label, cat = cat }
 end
 
-function apply_layout(panel, fade)
+function apply_layout(panel, fade, cat)
+	cat = cat or panel.cat or "general"
 	fade = fade or 1
-	local s = get_scale()
-	local h = BASE_H * s
+	local pr = PROFILES[cat]
+	local s = getv(cat, "scale")
+	local h = pr.base_h * s
 
 	-- correct width for the screen aspect so the texture is not stretched horizontally
 	local corr = (device().width / device().height) / (1024 / 768)
-	local w = h * TEX_ASPECT / corr
-	local left = get_pos_x() - w / 2
-	local top  = get_pos_y() - h / 2
-	local a  = math.floor(get_alpha() * 255 / 100 * fade + 0.5)
-	local ta = math.floor(get_text_alpha() * 255 / 100 * fade + 0.5)
+	local w = h * pr.tex_aspect / corr
+	local left = getv(cat, "pos_x") - w / 2
+	local top  = getv(cat, "pos_y") - h / 2
+	local a  = math.floor(getv(cat, "alpha") * 255 / 100 * fade + 0.5)
+	local ta = math.floor(getv(cat, "text_alpha") * 255 / 100 * fade + 0.5)
 
 	-- swap the skin texture only when it changes (InitTexture every frame is wasteful)
-	local skin = SKINS[skin_clamp(get_skin()) + 1][1]
+	local skin = skin_for(cat)
 	if (panel._skin ~= skin) then
-		panel.bg:InitTexture(SKIN_DIR .. skin)
+		panel.bg:InitTexture(skin)
 		panel.bg:SetStretchTexture(true)
 		panel._skin = skin
 	end
@@ -151,58 +191,93 @@ function apply_layout(panel, fade)
 	panel.bg:SetTextureColor(GetARGB(a, 255, 255, 255))
 
 	-- bitmap font is a shared object; only re-set it when family/size changes
-	local fam_idx, size_idx = get_text_font(), get_text_size()
+	local fam_idx, size_idx = getv(cat, "text_font"), getv(cat, "text_size")
 	local fkey = clampi(fam_idx, 0, #FONT_FAMILIES - 1) * 100 + clampi(size_idx, 0, MAX_SIZE_IDX)
 	if (panel._fkey ~= fkey) then
 		panel.label:SetFont(resolve_size(fam_idx, size_idx)[1]())
 		panel._fkey = fkey
 	end
 
-	-- default pos is right of the icon and vertically centered, offset by text_dx/dy
 	-- large bounding box to prevent clipping with bigger font sizes
-	local lx = left + w * ICON_FRAC + get_text_dx()
-	local ly = top + h / 2 - FONT_H / 2 + get_text_dy()
-	panel.label:SetWndPos(vector2():set(lx, ly))
-	panel.label:SetWndSize(vector2():set(w + 200, 120))
-	panel.label:SetTextColor(GetARGB(ta, get_text_r(), get_text_g(), get_text_b()))
+	local ly = top + h / 2 - FONT_H / 2 + getv(cat, "text_dy")
+	if (pr.centered) then
+		-- centered label spans the panel width
+		panel.label:SetWndPos(vector2():set(left + getv(cat, "text_dx"), ly))
+		panel.label:SetWndSize(vector2():set(w, 120))
+	else
+		-- default pos is right of the baked icon, offset by text_dx/dy
+		local lx = left + w * pr.icon_frac + getv(cat, "text_dx")
+		panel.label:SetWndPos(vector2():set(lx, ly))
+		panel.label:SetWndSize(vector2():set(w + 200, 120))
+	end
+	panel.label:SetTextColor(GetARGB(ta, getv(cat, "text_r"), getv(cat, "text_g"), getv(cat, "text_b")))
 end
 
--- MCM page
-function on_mcm_load()
-	return {
-		id = MOD_ID, sh = true,
-		gr = {
-			{ id = "title", type = "slide", text = "ui_mcm_tarkov_transitions_title", size = {512,50}, spacing = 20 },
-			{ id = "live_edit", type = "button", functor_ui = { open_live_edit }, precondition = { level_present }, hint = "tarkov_transitions_live_edit" },
-			{ id = "divider", type = "line" },
-			{ id = "duration", type = "track", val = 2, min = 1,   max = 30,   step = 1,    def = defaults.duration, hint = "tarkov_transitions_duration" },
-			{ id = "fade",     type = "track", val = 2, min = 0,   max = 2.0,  step = 0.05, def = defaults.fade,     hint = "tarkov_transitions_fade" },
-			{ id = "pos_x",    type = "track", val = 2, min = 0,   max = 1024, step = 1,    def = defaults.pos_x,    hint = "tarkov_transitions_pos_x" },
-			{ id = "pos_y",    type = "track", val = 2, min = 0,   max = 768,  step = 1,    def = defaults.pos_y,    hint = "tarkov_transitions_pos_y" },
-			{ id = "scale",    type = "track", val = 2, min = 0.2, max = 4.0,  step = 0.05, def = defaults.scale,    hint = "tarkov_transitions_scale" },
-			{ id = "alpha",    type = "track", val = 2, min = 10,  max = 100,  step = 5,    def = defaults.alpha,    hint = "tarkov_transitions_alpha" },
-			{ id = "text_dx",   type = "track", val = 2, min = -400, max = 400, step = 1, def = defaults.text_dx,   hint = "tarkov_transitions_text_dx" },
-			{ id = "text_dy",   type = "track", val = 2, min = -200, max = 200, step = 1, def = defaults.text_dy,   hint = "tarkov_transitions_text_dy" },
-			{ id = "text_font", type = "track", val = 2, min = 0, max = #FONT_FAMILIES - 1, step = 1, def = defaults.text_font, hint = "tarkov_transitions_text_font" },
-			{ id = "text_size", type = "track", val = 2, min = 0, max = MAX_SIZE_IDX, step = 1, def = defaults.text_size, hint = "tarkov_transitions_text_size" },
-			{ id = "text_r",    type = "track", val = 2, min = 0, max = 255, step = 1, def = defaults.text_r, hint = "tarkov_transitions_text_r" },
-			{ id = "text_g",    type = "track", val = 2, min = 0, max = 255, step = 1, def = defaults.text_g, hint = "tarkov_transitions_text_g" },
-			{ id = "text_b",    type = "track", val = 2, min = 0, max = 255, step = 1, def = defaults.text_b, hint = "tarkov_transitions_text_b" },
-			{ id = "text_alpha",type = "track", val = 2, min = 0, max = 100, step = 5, def = defaults.text_alpha, hint = "tarkov_transitions_text_alpha" },
-			{ id = "skin",      type = "track", val = 2, min = 0, max = #SKINS - 1, step = 1, def = defaults.skin,      hint = "tarkov_transitions_skin" },
-		},
-	}
-end
-
--- only show the live-editor button in game, not main menu
+-- only show the live-editor buttons in game, not main menu
 function level_present()
 	return level and level.present()
 end
 
--- MCM button functor: close the MCM dialog, then open the slider panel
-function open_live_edit(mcm_self)
+-- MCM buttons: close the MCM dialog, then open the matching live editor
+function open_live_edit_general(mcm_self)
 	mcm_self:On_Cancel()
-	start_live_edit()
+	start_live_edit("general")
+end
+function open_live_edit_companions(mcm_self)
+	mcm_self:On_Cancel()
+	start_live_edit("companions")
+end
+
+-- MCM page: two subcategories, each with its own live-edit button
+function on_mcm_load()
+	local dg, dc = defaults.general, defaults.companions
+	return {
+		id = MOD_ID,
+		gr = {
+			{ id = "general", sh = true, text = "ui_mcm_menu_tarkov_transitions_general", gr = {
+				{ id = "title",     type = "slide", text = "ui_mcm_tarkov_transitions_title", size = {512,50}, spacing = 20 },
+				{ id = "live_edit", type = "button", functor_ui = { open_live_edit_general }, precondition = { level_present }, hint = "tarkov_transitions_live_edit" },
+				{ id = "divider",   type = "line" },
+				{ id = "duration",        type = "track", val = 2, min = 1,   max = 30,   step = 1,    def = dg.duration,        hint = "tarkov_transitions_duration" },
+				{ id = "activation_dist", type = "track", val = 2, min = 0,   max = 30,   step = 1,    def = dg.activation_dist, hint = "tarkov_transitions_activation_dist" },
+				{ id = "fade",     type = "track", val = 2, min = 0,   max = 2.0,  step = 0.05, def = dg.fade,     hint = "tarkov_transitions_fade" },
+				{ id = "pos_x",    type = "track", val = 2, min = 0,   max = 1024, step = 1,    def = dg.pos_x,    hint = "tarkov_transitions_pos_x" },
+				{ id = "pos_y",    type = "track", val = 2, min = 0,   max = 768,  step = 1,    def = dg.pos_y,    hint = "tarkov_transitions_pos_y" },
+				{ id = "scale",    type = "track", val = 2, min = 0.2, max = 4.0,  step = 0.05, def = dg.scale,    hint = "tarkov_transitions_scale" },
+				{ id = "alpha",    type = "track", val = 2, min = 10,  max = 100,  step = 5,    def = dg.alpha,    hint = "tarkov_transitions_alpha" },
+				{ id = "text_dx",   type = "track", val = 2, min = -400, max = 400, step = 1, def = dg.text_dx,   hint = "tarkov_transitions_text_dx" },
+				{ id = "text_dy",   type = "track", val = 2, min = -200, max = 200, step = 1, def = dg.text_dy,   hint = "tarkov_transitions_text_dy" },
+				{ id = "text_font", type = "track", val = 2, min = 0, max = #FONT_FAMILIES - 1, step = 1, def = dg.text_font, hint = "tarkov_transitions_text_font" },
+				{ id = "text_size", type = "track", val = 2, min = 0, max = MAX_SIZE_IDX, step = 1, def = dg.text_size, hint = "tarkov_transitions_text_size" },
+				{ id = "text_r",    type = "track", val = 2, min = 0, max = 255, step = 1, def = dg.text_r, hint = "tarkov_transitions_text_r" },
+				{ id = "text_g",    type = "track", val = 2, min = 0, max = 255, step = 1, def = dg.text_g, hint = "tarkov_transitions_text_g" },
+				{ id = "text_b",    type = "track", val = 2, min = 0, max = 255, step = 1, def = dg.text_b, hint = "tarkov_transitions_text_b" },
+				{ id = "text_alpha",type = "track", val = 2, min = 0, max = 100, step = 5, def = dg.text_alpha, hint = "tarkov_transitions_text_alpha" },
+				{ id = "skin",      type = "track", val = 2, min = 0, max = #SKINS - 1, step = 1, def = dg.skin, hint = "tarkov_transitions_skin" },
+			}},
+			{ id = "companions", sh = true, text = "ui_mcm_menu_tarkov_transitions_companions", gr = {
+				{ id = "title_cp",     type = "slide", text = "ui_mcm_tarkov_transitions_companions_title", size = {512,50}, spacing = 20 },
+				{ id = "live_edit_cp", type = "button", functor_ui = { open_live_edit_companions }, precondition = { level_present }, hint = "tarkov_transitions_live_edit_cp" },
+				{ id = "divider_cp",   type = "line" },
+				{ id = "warn_duration", type = "track", val = 2, min = 10, max = 30, step = 1, def = dc.warn_duration, hint = "tarkov_transitions_warn_duration" },
+				{ id = "pos_x",    type = "track", val = 2, min = 0,   max = 1024, step = 1,    def = dc.pos_x,    hint = "tarkov_transitions_pos_x" },
+				{ id = "pos_y",    type = "track", val = 2, min = 0,   max = 768,  step = 1,    def = dc.pos_y,    hint = "tarkov_transitions_pos_y" },
+				{ id = "scale",    type = "track", val = 2, min = 0.2, max = 4.0,  step = 0.05, def = dc.scale,    hint = "tarkov_transitions_scale" },
+				{ id = "alpha",    type = "track", val = 2, min = 10,  max = 100,  step = 5,    def = dc.alpha,    hint = "tarkov_transitions_alpha" },
+				{ id = "text_dx",   type = "track", val = 2, min = -400, max = 400, step = 1, def = dc.text_dx,   hint = "tarkov_transitions_text_dx" },
+				{ id = "text_dy",   type = "track", val = 2, min = -200, max = 200, step = 1, def = dc.text_dy,   hint = "tarkov_transitions_text_dy" },
+				{ id = "text_font", type = "track", val = 2, min = 0, max = #FONT_FAMILIES - 1, step = 1, def = dc.text_font, hint = "tarkov_transitions_text_font" },
+				{ id = "text_size", type = "track", val = 2, min = 0, max = MAX_SIZE_IDX, step = 1, def = dc.text_size, hint = "tarkov_transitions_text_size" },
+				{ id = "text_r",    type = "track", val = 2, min = 0, max = 255, step = 1, def = dc.text_r, hint = "tarkov_transitions_text_r" },
+				{ id = "text_g",    type = "track", val = 2, min = 0, max = 255, step = 1, def = dc.text_g, hint = "tarkov_transitions_text_g" },
+				{ id = "text_b",    type = "track", val = 2, min = 0, max = 255, step = 1, def = dc.text_b, hint = "tarkov_transitions_text_b" },
+				{ id = "text_alpha",type = "track", val = 2, min = 0, max = 100, step = 5, def = dc.text_alpha, hint = "tarkov_transitions_text_alpha" },
+			}},
+			{ id = "debug", sh = true, text = "ui_mcm_menu_tarkov_transitions_debug", gr = {
+				{ id = "any_companions", type = "check", val = 1, def = defaults.debug.any_companions, hint = "tarkov_transitions_debug_any_companions" },
+			}},
+		},
+	}
 end
 
 -- live position / scale / opacity editor
@@ -211,45 +286,68 @@ local function rnd(v, dp)
 	return math.floor(v * m + 0.5) / m
 end
 
-local commands = {
-	{ key = "duration", name = "ui_mcm_tarkov_transitions_duration", min = 1,   max = 30,   step = 1,    dp = 0 },
-	{ key = "fade",     name = "ui_mcm_tarkov_transitions_fade",     min = 0,   max = 2.0,  step = 0.05, dp = 2 },
-	{ key = "pos_x",    name = "ui_mcm_tarkov_transitions_pos_x",    min = 0,   max = 1024, step = 1,    dp = 0 },
-	{ key = "pos_y",    name = "ui_mcm_tarkov_transitions_pos_y",    min = 0,   max = 768,  step = 1,    dp = 0 },
-	{ key = "scale",    name = "ui_mcm_tarkov_transitions_scale",    min = 0.2, max = 4.0,  step = 0.05, dp = 2 },
-	{ key = "alpha",    name = "ui_mcm_tarkov_transitions_alpha",    min = 10,  max = 100,  step = 5,    dp = 0 },
-	{ key = "text_dx",  name = "ui_mcm_tarkov_transitions_text_dx",  min = -400, max = 400, step = 1, dp = 0 },
-	{ key = "text_dy",  name = "ui_mcm_tarkov_transitions_text_dy",  min = -200, max = 200, step = 1, dp = 0 },
-	{ key = "text_font",name = "ui_mcm_tarkov_transitions_text_font",min = 0, max = #FONT_FAMILIES - 1, step = 1, dp = 0, is_fontfam = true },
-	{ key = "text_size",name = "ui_mcm_tarkov_transitions_text_size",min = 0, max = MAX_SIZE_IDX, step = 1, dp = 0, is_fontsize = true },
-	{ key = "text_r",   name = "ui_mcm_tarkov_transitions_text_r",   min = 0, max = 255, step = 1, dp = 0 },
-	{ key = "text_g",   name = "ui_mcm_tarkov_transitions_text_g",   min = 0, max = 255, step = 1, dp = 0 },
-	{ key = "text_b",   name = "ui_mcm_tarkov_transitions_text_b",   min = 0, max = 255, step = 1, dp = 0 },
-	{ key = "text_alpha",name = "ui_mcm_tarkov_transitions_text_alpha", min = 0, max = 100, step = 5, dp = 0 },
-	{ key = "skin",     name = "ui_mcm_tarkov_transitions_skin",     min = 0, max = #SKINS - 1, step = 1, dp = 0, is_skin = true },
-}
+-- shared layout rows for the live editor (order matters, drives the row list)
+local function layout_commands()
+	return {
+		{ key = "pos_x",    name = "ui_mcm_tarkov_transitions_pos_x",    min = 0,   max = 1024, step = 1,    dp = 0 },
+		{ key = "pos_y",    name = "ui_mcm_tarkov_transitions_pos_y",    min = 0,   max = 768,  step = 1,    dp = 0 },
+		{ key = "scale",    name = "ui_mcm_tarkov_transitions_scale",    min = 0.2, max = 4.0,  step = 0.05, dp = 2 },
+		{ key = "alpha",    name = "ui_mcm_tarkov_transitions_alpha",    min = 10,  max = 100,  step = 5,    dp = 0 },
+		{ key = "text_dx",  name = "ui_mcm_tarkov_transitions_text_dx",  min = -400, max = 400, step = 1, dp = 0 },
+		{ key = "text_dy",  name = "ui_mcm_tarkov_transitions_text_dy",  min = -200, max = 200, step = 1, dp = 0 },
+		{ key = "text_font",name = "ui_mcm_tarkov_transitions_text_font",min = 0, max = #FONT_FAMILIES - 1, step = 1, dp = 0, is_fontfam = true },
+		{ key = "text_size",name = "ui_mcm_tarkov_transitions_text_size",min = 0, max = MAX_SIZE_IDX, step = 1, dp = 0, is_fontsize = true },
+		{ key = "text_r",   name = "ui_mcm_tarkov_transitions_text_r",   min = 0, max = 255, step = 1, dp = 0 },
+		{ key = "text_g",   name = "ui_mcm_tarkov_transitions_text_g",   min = 0, max = 255, step = 1, dp = 0 },
+		{ key = "text_b",   name = "ui_mcm_tarkov_transitions_text_b",   min = 0, max = 255, step = 1, dp = 0 },
+		{ key = "text_alpha",name = "ui_mcm_tarkov_transitions_text_alpha", min = 0, max = 100, step = 5, dp = 0 },
+	}
+end
 
-local function cmd_get(c)
+local commands_general = (function()
+	local t = {
+		{ key = "duration", name = "ui_mcm_tarkov_transitions_duration", min = 1,   max = 30,   step = 1,    dp = 0 },
+		{ key = "fade",     name = "ui_mcm_tarkov_transitions_fade",     min = 0,   max = 2.0,  step = 0.05, dp = 2 },
+	}
+	for _, c in ipairs(layout_commands()) do t[#t + 1] = c end
+	t[#t + 1] = { key = "skin", name = "ui_mcm_tarkov_transitions_skin", min = 0, max = #SKINS - 1, step = 1, dp = 0, is_skin = true }
+	return t
+end)()
+
+local commands_companions = (function()
+	local t = {
+		{ key = "warn_duration", name = "ui_mcm_tarkov_transitions_warn_duration", min = 10, max = 30, step = 1, dp = 0 },
+	}
+	for _, c in ipairs(layout_commands()) do t[#t + 1] = c end
+	return t
+end)()
+
+local function commands_for(cat)
+	if (cat == "companions") then return commands_companions end
+	return commands_general
+end
+
+local function cmd_get(cat, c)
 	if (ui_mcm) then
-		local v = ui_mcm.get(mcm_path(c.key))
+		local v = ui_mcm.get(mcm_path(cat, c.key))
 		if (v ~= nil) then return v end
 	end
-	return defaults[c.key]
+	return defaults[cat][c.key]
 end
 
-local function cmd_set(c, val)
+local function cmd_set(cat, c, val)
 	if (ui_mcm) then
-		ui_mcm.set(mcm_path(c.key), val)
+		ui_mcm.set(mcm_path(cat, c.key), val)
 	end
 end
 
-local function cmd_label(c, val)
+local function cmd_label(cat, c, val)
 	if (c.is_fontfam) then
 		return get_family(val).name
 	end
 	if (c.is_fontsize) then
-		-- size label depends on the currently selected family
-		return resolve_size(get_text_font(), val)[2]
+		-- size label depends on the currently selected family for this profile
+		return resolve_size(getv(cat, "text_font"), val)[2]
 	end
 	if (c.is_skin) then
 		return SKINS[skin_clamp(val) + 1][2]
@@ -264,26 +362,36 @@ end
 GUI = nil       -- live editor instance
 PREVIEW = nil   -- preview overlay instance
 
-function start_live_edit()
+function start_live_edit(cat)
+	cat = cat or "general"
 	exec_console_cmd("main_menu off")
-	if not GUI then GUI = UITarkovEdit() end
+	if not GUI then GUI = UITarkovEdit(cat) end
 	if GUI and not GUI:IsShown() then
 		GUI:ShowDialog(false)   -- false = keep the game HUD/indicators visible
 		Register_UI("UITarkovEdit", "tarkov_transitions_mcm")
-		if not PREVIEW then PREVIEW = UITarkovPreview() end
+		if not PREVIEW then PREVIEW = UITarkovPreview(cat) end
 	end
+end
+
+-- sample label text shown in the preview for each profile
+local function preview_text(cat)
+	if (cat == "companions") then
+		return strformat(game.translate_string("st_tarkov_companion_leave_label"), "15.0")
+	end
+	return strformat(game.translate_string("st_tarkov_extract_label"), "5.0")
 end
 
 -- preview overlay: a sample panel shown while the editor is open, re-laid-out live
 class "UITarkovPreview" (CUIScriptWnd)
-function UITarkovPreview:__init() super()
+function UITarkovPreview:__init(cat) super()
+	self.cat = cat or "general"
 	self:SetWndRect(Frect():set(0, 0, 1024, 768))
 	self:SetAutoDelete(true)
-	self.panel = build_panel(self)
+	self.panel = build_panel(self, self.cat)
 
 	-- lay out and label before the first render so there is no one-frame flash
-	apply_layout(self.panel, 1)
-	self.panel.label:SetText(strformat(game.translate_string("st_tarkov_extract_label"), "5.0"))
+	apply_layout(self.panel, 1, self.cat)
+	self.panel.label:SetText(preview_text(self.cat))
 	local hud = get_hud()
 	if (hud) then
 		hud:AddDialogToRender(self)
@@ -296,8 +404,8 @@ end
 
 function UITarkovPreview:Update()
 	CUIScriptWnd.Update(self)
-	apply_layout(self.panel)
-	self.panel.label:SetText(strformat(game.translate_string("st_tarkov_extract_label"), "5.0"))
+	apply_layout(self.panel, 1, self.cat)
+	self.panel.label:SetText(preview_text(self.cat))
 end
 
 function UITarkovPreview:Destroy()
@@ -309,7 +417,9 @@ function UITarkovPreview:Destroy()
 end
 
 class "UITarkovEdit" (CUIScriptWnd)
-function UITarkovEdit:__init() super()
+function UITarkovEdit:__init(cat) super()
+	self.cat = cat or "general"
+	self.commands = commands_for(self.cat)
 	self:InitControls()
 	RegisterScriptCallback("actor_on_net_destroy", self)
 end
@@ -332,28 +442,29 @@ function UITarkovEdit:InitControls()
 	self.dialog = xml:InitStatic("ctrl_lighting", self)
 	self.frame = xml:InitFrame("ctrl_lighting:frame", self.dialog)
 	local cap = xml:InitStatic("ctrl_lighting:cap_main", self.dialog)
-	cap:TextControl():SetText(game.translate_string("ui_mcm_tarkov_transitions_live_edit_caption"))
+	local cap_str = (self.cat == "companions") and "ui_mcm_tarkov_transitions_live_edit_cp_caption" or "ui_mcm_tarkov_transitions_live_edit_caption"
+	cap:TextControl():SetText(game.translate_string(cap_str))
 	self.scroll = xml:InitScrollView("ctrl_lighting:scroll", self.dialog)
 	self.scroll:Clear()
 
 	self.Track = {}
 	self.Value = {}
 	self.Num = {}
-	for i = 1, #commands do
-		local c = commands[i]
+	for i = 1, #self.commands do
+		local c = self.commands[i]
 		if (c.is_fontsize) then self.size_row = i end
 		local st = xml:InitStatic("ctrl_lighting:st", nil)
 		local lab = xml:InitStatic("ctrl_lighting:cap", st)
 		lab:TextControl():SetText(game.translate_string(c.name))
 
-		local val = cmd_get(c) or 0
+		local val = cmd_get(self.cat, c) or 0
 		self.Track[i] = xml:InitTrackBar("ctrl_lighting:track", st)
 		self.Track[i]:SetStep(c.step)
 		self.Track[i]:SetOptFBounds(c.min, c.max)
 		self.Track[i]:SetFValue(val)
 		self.Value[i] = val
 		self.Num[i] = xml:InitTextWnd("ctrl_lighting:num", st)
-		self.Num[i]:SetText(cmd_label(c, rnd(val, c.dp)))
+		self.Num[i]:SetText(cmd_label(self.cat, c, rnd(val, c.dp)))
 
 		self.scroll:AddWindow(st, true)
 		st:SetAutoDelete(true)
@@ -379,7 +490,7 @@ end
 -- the size label depends on the current family, so refresh it when family changes
 function UITarkovEdit:RefreshSizeRow()
 	local i = self.size_row
-	if (i) then self.Num[i]:SetText(cmd_label(commands[i], self.Value[i])) end
+	if (i) then self.Num[i]:SetText(cmd_label(self.cat, self.commands[i], self.Value[i])) end
 end
 
 function UITarkovEdit:Update()
@@ -388,12 +499,12 @@ function UITarkovEdit:Update()
 	-- engine has no trackbar change callback; poll the one under the cursor
 	for i, ctrl in pairs(self.Track) do
 		if ctrl:IsCursorOverWindow() then
-			local c = commands[i]
+			local c = self.commands[i]
 			local val = rnd(ctrl:GetFValue(), c.dp)
 			if val ~= self.Value[i] then
 				self.Value[i] = val
-				cmd_set(c, val)
-				self.Num[i]:SetText(cmd_label(c, val))
+				cmd_set(self.cat, c, val)
+				self.Num[i]:SetText(cmd_label(self.cat, c, val))
 				if (c.is_fontfam) then self:RefreshSizeRow() end
 				return
 			end

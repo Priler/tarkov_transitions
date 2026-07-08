@@ -117,4 +117,56 @@
 	<string id="ui_mcm_tarkov_transitions_skin_desc">
 		<text>Choose the panel artwork.</text>
 	</string>
+	<string id="ui_mcm_tarkov_transitions_activation_dist">
+		<text>Activation distance (m)</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_activation_dist_desc">
+		<text
+        >How close you must get to a transition zone before the countdown starts, in meters. 0 = only when you step inside the zone (default). Higher values arm the transition from further away.</text>
+	</string>
+
+	<!-- subcategory tree labels -->
+	<string id="ui_mcm_menu_tarkov_transitions_general">
+		<text>General</text>
+	</string>
+	<string id="ui_mcm_menu_tarkov_transitions_companions">
+		<text>Paid Companions</text>
+	</string>
+
+	<!-- Paid Companions subcategory -->
+	<string id="ui_mcm_tarkov_transitions_companions_title">
+		<text>Paid Companion Warning</text>
+	</string>
+	<string id="st_tarkov_companion_leave_label">
+		<text>Companion will leave in %s</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_warn_duration">
+		<text>Warning seconds</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_warn_duration_desc">
+		<text
+        >How long the red companion warning holds before your paid companions leave. Leave the zone to cancel. Requires Paid Companion Transition Warning.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_cp">
+		<text>Open companion panel editor</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_cp_desc">
+		<text
+        >Drop into the game with a slider panel to move, scale and color the companion warning label live. Press ESC to close.</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_live_edit_cp_caption">
+		<text>Companion panel - position / scale / opacity</text>
+	</string>
+
+	<!-- Debug subcategory -->
+	<string id="ui_mcm_menu_tarkov_transitions_debug">
+		<text>Debug</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_debug_any_companions">
+		<text>Debug: count any companion</text>
+	</string>
+	<string id="ui_mcm_tarkov_transitions_debug_any_companions_desc">
+		<text
+        >Testing only. When on, the companion warning triggers (and dismisses) for ANY companion, not just paid escorts. Lets you test the warning without hiring a paid companion.</text>
+	</string>
 </string_table>

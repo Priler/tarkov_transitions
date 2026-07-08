@@ -12,6 +12,243 @@ local ini = ini_file("sr_teleport_sections.ltx")
 -- only one countdown at a time, also keeps the active window alive against GC
 local active_ui = nil
 
+-- true while the vanilla-path countdown window is live
+function is_countdown_active()
+	return active_ui ~= nil
+end
+
+-- true while ANY countdown is live
+local function any_countdown_active()
+	if (active_ui) then return true end
+	return tarkov_transitions_countdown and tarkov_transitions_countdown.is_active() or false
+end
+
+-- transition zones the actor is within activation range of, keyed by section name
+local zone_in_range = {}
+
+-- cached transition-zone candidates on this level: array of { id, name }
+local zone_cache = nil
+local zone_cache_at = 0
+local ZONE_CACHE_MS = 5000
+local SCAN_MS = 200      -- proximity scan cadence
+local last_scan = 0
+
+local function clear_range_state()
+	for k in pairs(zone_in_range) do zone_in_range[k] = nil end
+	zone_cache = nil
+end
+
+-- Paid Companion Transition Warning compatibility (optional, no-ops without that mod)
+local PHASE_CAT = { warn = "companions", travel = "general" }
+
+local function table_empty(t)
+	return (not t) or (next(t) == nil)
+end
+
+-- companion presence gate
+-- normal: only PAID companions count
+-- debug: any
+local function has_companion(debug)
+	if (debug) then
+		local cs = axr_companions and axr_companions.companion_squads
+		return (cs ~= nil) and (next(cs) ~= nil)
+	end
+	return (txr_paid_companions ~= nil) and not (table_empty(txr_paid_companions.paid_companions))
+end
+
+local function should_warn(name)
+	-- dangerous_destination comes from PCTW
+	if not (name and paid_companion_transition_warning) then
+		return false
+	end
+	if not (has_companion(tarkov_transitions_mcm.get_debug_any_companions())) then
+		return false
+	end
+	-- their danger lookup can index a nil map table
+	local ok, danger = pcall(paid_companion_transition_warning.dangerous_destination, name)
+	return (ok and danger) and true or false
+end
+
+-- leaving news tip
+local function send_leave_tip(commander)
+	if (commander and dynamic_news_helper) then
+		local msg = game.translate_string("st_paid_companion_danger_warning_" .. tostring(math.random(1, 2)))
+		pcall(dynamic_news_helper.send_tip, msg, commander:character_name(), nil, 15, commander:character_icon(), nil, "npc")
+	end
+end
+
+local function give_companion_warning()
+	if (paid_companion_transition_warning and paid_companion_transition_warning.give_warning) then
+		pcall(paid_companion_transition_warning.give_warning)
+	end
+end
+
+-- debug: remove EVERY companion
+local function dismiss_all_companions()
+	local cs = axr_companions and axr_companions.companion_squads
+	if not (cs and axr_companions.remove_from_actor_squad) then
+		return
+	end
+	-- collect members and commanders first: remove_from_actor_squad mutates companion_squads
+	local ids, commanders = {}, {}
+	for _, squad in pairs(cs) do
+		if (squad and squad.squad_members) then
+			local cid = squad.commander_id and squad:commander_id()
+			if (cid) then commanders[#commanders + 1] = cid end
+			for k in squad:squad_members() do
+				ids[#ids + 1] = k.id
+			end
+		end
+	end
+	for i = 1, #ids do
+		local st = db.storage[ids[i]]
+		local m = st and st.object
+		if (m) then
+			pcall(axr_companions.remove_from_actor_squad, m)
+		end
+	end
+	-- leaving tip from each squad commander
+	for i = 1, #commanders do
+		local st = db.storage[commanders[i]]
+		send_leave_tip(st and st.object)
+	end
+end
+
+-- replicate danger-dismiss from txr_paid_companions.contract_timer:
+--remove every paid companion member from the actor squad and clear the paid registry
+local function dismiss_companions()
+	-- debug mode dismisses any companion
+	if (tarkov_transitions_mcm.get_debug_any_companions()) then
+		dismiss_all_companions()
+		return
+	end
+
+	local reg = txr_paid_companions and txr_paid_companions.paid_companions
+	if not (reg and axr_companions and axr_companions.remove_from_actor_squad) then
+		return
+	end
+	for k, v in pairs(reg) do
+		local members = v and v.members_id
+		local squad
+		if (members) then
+			for i = 1, #members do
+				local st = db.storage[members[i]]
+				local m = st and st.object
+				if (m) then
+					pcall(axr_companions.remove_from_actor_squad, m)
+					squad = squad or get_object_squad(m)
+				end
+			end
+		end
+		reg[k] = nil
+
+		-- companion voice line from the squad commander
+		local commander_id = squad and squad:commander_id()
+		send_leave_tip(commander_id and db.storage[commander_id] and db.storage[commander_id].object)
+	end
+end
+
+-- true if the actor is inside the zone OR within `radius` meters of its boundary
+local NEAR_STEP = 2.0
+
+local function near_zone(obj, apos, radius)
+	if (obj:inside(apos)) then return true end
+	if (radius <= 0) then return false end
+
+	local cpos = obj:position()
+	local dx, dy, dz = cpos.x - apos.x, cpos.y - apos.y, cpos.z - apos.z
+	local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+	if (dist < 0.001) then return true end
+	-- center too far to possibly be within reach even for a big zone: skip
+	if (dist - radius > 60) then return false end
+
+	local inv = 1 / dist
+	dx, dy, dz = dx * inv, dy * inv, dz * inv
+	local probe = vector()
+	local d = NEAR_STEP
+	while (d <= radius) do
+		probe:set(apos.x + dx * d, apos.y + dy * d, apos.z + dz * d)
+		if (obj:inside(probe)) then return true end
+		d = d + NEAR_STEP
+	end
+	return false
+end
+
+-- section name for a bound transition object, or nil if it is not one
+-- remaps the story id the same way msg_box_ui does
+local function section_for(obj, id)
+	local name = obj:name()
+	if not (name) then return nil end
+	if (string.find(name, tostring(id))) then
+		name = get_object_story_id(id) or name
+	end
+	return name
+end
+
+local function candidate_name(obj, id)
+	local n = obj:name()
+	if not (n and (string.find(n, "space_restrictor") or string.find(n, "level_changer"))) then
+		return nil
+	end
+	local name = section_for(obj, id)
+	if (name and ini:section_exist(name)) then
+		return name
+	end
+	return nil
+end
+
+local function rebuild_zone_cache()
+	zone_cache = {}
+	zone_cache_at = time_global()
+	for id in pairs(db.storage) do
+		local obj = level.object_by_id(id)
+		if (obj) then
+			local name = candidate_name(obj, id)
+			if (name) then
+				zone_cache[#zone_cache + 1] = { id = id, name = name }
+			end
+		end
+	end
+end
+
+local function ensure_zone_cache()
+	if (not zone_cache) or (time_global() - zone_cache_at > ZONE_CACHE_MS) then
+		rebuild_zone_cache()
+	end
+end
+
+-- after a teleport, mark every zone near the arrival point as in-range so it does
+-- not immediately re-arms
+local function seed_nearby()
+	if not (db.actor) then return end
+	local radius = tarkov_transitions_mcm.get_activation_dist()
+	if (radius <= 0) then return end
+	ensure_zone_cache()
+	local apos = db.actor:position()
+	for i = 1, #zone_cache do
+		local z = zone_cache[i]
+		local obj = level.object_by_id(z.id)
+		if (obj) and near_zone(obj, apos, radius) then
+			zone_in_range[z.name] = true
+		end
+	end
+end
+
+-- Engine level changers (the walk-to-edge / press-Use map transitions)
+local LC_BOUNCE_DIST = 10.0
+local WARN_HOLD_RADIUS = 30.0
+
+-- collect ids of every online level changer into the given set (cleared first)
+local function collect_changers(into)
+	for k in pairs(into) do into[k] = nil end
+	for id in pairs(db.storage) do
+		local obj = level.object_by_id(id)
+		if (obj and isLc(obj)) then
+			into[id] = true
+		end
+	end
+end
+
 class "msg_box_ui" (CUIScriptWnd)
 function msg_box_ui:__init(obj,disable_msg,item) super()
 	self:SetWndRect(Frect():set(0,0,1024,768))
@@ -69,20 +306,21 @@ function msg_box_ui:InitCallBacks()
 end
 
 function msg_box_ui:StartCountdown()
-	if (active_ui) then
+	if (any_countdown_active()) then
 		return
 	end
 
 	self.restrictor = self.obj
-	self.duration_ms = tarkov_transitions_mcm.get_duration() * 1000
-	self.elapsed = 0
 	self.last = time_global()
 	self.done = false
-	self.appear_at = time_global()
 	self.fade_ms = tarkov_transitions_mcm.get_fade() * 1000
 	self.fading_out = false
 
-	self.panel = tarkov_transitions_mcm.build_panel(self)
+	-- build both panels
+	self.panels = {
+		general    = tarkov_transitions_mcm.build_panel(self, "general"),
+		companions = tarkov_transitions_mcm.build_panel(self, "companions"),
+	}
 
 	local hud = get_hud()
 	if not (hud) then
@@ -99,10 +337,84 @@ function msg_box_ui:StartCountdown()
 	RegisterScriptCallback("actor_on_net_destroy", self)
 	self._net_cb = true
 
-	-- start invisible
-	-- the first Update fades it in
-	tarkov_transitions_mcm.apply_layout(self.panel, 0)
+	-- dangerous destination with paid companions: warn (red panel) first, then travel
+	if (should_warn(self.name)) then
+		self:BeginPhase("warn")
+
+		-- anchor to snap back to and the set of changers to bounce off (see BlockChangerRush)
+		self.warn_start_pos = vector():set(db.actor:position())
+		self.warn_changers = {}
+		collect_changers(self.warn_changers)
+		give_companion_warning()
+	else
+		self:BeginPhase("travel")
+	end
+end
+
+-- (re)arm the timer for a phase and swap which panel is drawn
+-- "warn" shows the red companion panel
+-- "travel" the normal transition panel
+function msg_box_ui:BeginPhase(phase)
+	self.phase = phase
+	self.cat = PHASE_CAT[phase]
+	self.elapsed = 0
+	-- restart the fade-in
+	self.appear_at = time_global()
+	if (phase == "warn") then
+		self.duration_ms = tarkov_transitions_mcm.get_warn_duration() * 1000
+	else
+		self.duration_ms = tarkov_transitions_mcm.get_duration() * 1000
+	end
+
+	-- hide the other panel, show the active one
+	local other = (self.cat == "general") and "companions" or "general"
+	tarkov_transitions_mcm.apply_layout(self.panels[other], 0, other)
+	tarkov_transitions_mcm.apply_layout(self.panels[self.cat], self:FadeInMul(), self.cat)
 	self:SetLabel(self.duration_ms / 1000)
+end
+
+-- warning ran out with the actor still inside: dismiss the paid companions,
+-- then roll straight into the normal transition
+function msg_box_ui:FinishWarning()
+	dismiss_companions()
+	self:BeginPhase("travel")
+end
+
+-- keep the actor from rushing a vanilla level changer to escape with companions
+-- while the warning counts down: if they come within LC_BOUNCE_DIST of one, teleport this mofo
+-- back to where the warning started
+function msg_box_ui:BlockChangerRush()
+	if not (db.actor and self.warn_start_pos and self.warn_changers) then
+		return
+	end
+	-- refresh the changer set on a throttle so ones that come online mid-rush count
+	local now = time_global()
+	if (not self._lc_scan or (now - self._lc_scan > 400)) then
+		self._lc_scan = now
+		collect_changers(self.warn_changers)
+	end
+	local apos = db.actor:position()
+	for id in pairs(self.warn_changers) do
+		local obj = level.object_by_id(id)
+		-- inside() is dead on level changers, so gate on center distance
+		if (obj and apos:distance_to(obj:position()) <= LC_BOUNCE_DIST) then
+			db.actor:set_actor_position(self.warn_start_pos)
+			return
+		end
+	end
+end
+
+-- true if the actor is within r meters (center distance) of any tracked changer
+function msg_box_ui:NearAnyChanger(r)
+	if not (db.actor and self.warn_changers) then return false end
+	local apos = db.actor:position()
+	for id in pairs(self.warn_changers) do
+		local obj = level.object_by_id(id)
+		if (obj and apos:distance_to(obj:position()) <= r) then
+			return true
+		end
+	end
+	return false
 end
 
 -- 0..1 fade-in multiplier based on how long the panel has been up
@@ -115,7 +427,8 @@ end
 
 function msg_box_ui:SetLabel(remaining_sec)
 	local num = string.format("%.1f", remaining_sec)
-	self.panel.label:SetText(strformat(game.translate_string("st_tarkov_extract_label"), num))
+	local key = (self.phase == "warn") and "st_tarkov_companion_leave_label" or "st_tarkov_extract_label"
+	self.panels[self.cat].label:SetText(strformat(game.translate_string(key), num))
 end
 
 function msg_box_ui:Update()
@@ -134,7 +447,7 @@ function msg_box_ui:Update()
 			self:Teardown()
 			return
 		end
-		tarkov_transitions_mcm.apply_layout(self.panel, 1 - k)
+		tarkov_transitions_mcm.apply_layout(self.panels[self.cat], 1 - k, self.cat)
 		return
 	end
 
@@ -146,23 +459,46 @@ function msg_box_ui:Update()
 
 	-- frozen in a menu / pause: hold the countdown, do not count leaving as exit
 	if (device():is_paused()) then
-		tarkov_transitions_mcm.apply_layout(self.panel, self:FadeInMul())
+		tarkov_transitions_mcm.apply_layout(self.panels[self.cat], self:FadeInMul(), self.cat)
 		return
 	end
 
-	if not (db.actor and self.restrictor and self.restrictor:inside(db.actor:position())) then
+	if not (db.actor and self.restrictor) then
 		self:CancelCountdown()
 		return
+	end
+
+	if (self.phase == "warn") then
+		-- bounce the mofo (actor)
+		self:BlockChangerRush()
+
+		if not (near_zone(self.restrictor, db.actor:position(), tarkov_transitions_mcm.get_activation_dist())
+			or self:NearAnyChanger(WARN_HOLD_RADIUS)) then
+			self:CancelCountdown()
+			return
+		end
+	else
+		-- travel: cancel when the actor leaves the zone
+		if not (near_zone(self.restrictor, db.actor:position(), tarkov_transitions_mcm.get_activation_dist())) then
+			self:CancelCountdown()
+			return
+		end
 	end
 
 	self.elapsed = self.elapsed + dt
 	local remaining = self.duration_ms - self.elapsed
 	if (remaining <= 0) then
-		self:FinishCountdown()
+		-- warning done: dismiss companions then switch to the travel countdown
+		-- travel done: fade out and perform the teleport
+		if (self.phase == "warn") then
+			self:FinishWarning()
+		else
+			self:FinishCountdown()
+		end
 		return
 	end
 
-	tarkov_transitions_mcm.apply_layout(self.panel, self:FadeInMul())
+	tarkov_transitions_mcm.apply_layout(self.panels[self.cat], self:FadeInMul(), self.cat)
 	self:SetLabel(remaining / 1000)
 end
 
@@ -264,6 +600,8 @@ function msg_box_ui:OnMsgOk()
 			db.actor:set_actor_direction(tonum(p[4]) or 0)
 		end
 
+		-- suppress the zone we just landed in
+		seed_nearby()
 		return true
 	end
 
@@ -309,4 +647,61 @@ function msg_box_ui:InitControls()
 	local msg_str = game.translate_string("st_level_changer_descr")
 	local str = strformat(msg_str, next_level)
 	self.message_box:SetText(str)
+end
+
+-- has the actor actually unlocked this route?
+-- mirrors the gate inside msg_box_ui, so we never arm on a locked route
+local function route_open(name)
+	if (alife_storage_manager.get_state().opened_routes == true) then return true end
+	if (txr_routes.scan_route(name)) then return true end
+	if (mlr_utils.load_var("routes_"..name)) then return true end
+	return false
+end
+
+-- Global proximity scanner
+local function proximity_scan()
+	if not (db.actor) then
+		return
+	end
+
+	local radius = tarkov_transitions_mcm.get_activation_dist()
+	if (radius <= 0) then
+		return
+	end
+
+	local now = time_global()
+	if (now - last_scan < SCAN_MS) then
+		return
+	end
+	last_scan = now
+
+	ensure_zone_cache()
+
+	local apos = db.actor:position()
+	local arm_obj
+	-- update every zone's in-range state
+	for i = 1, #zone_cache do
+		local z = zone_cache[i]
+		local obj = level.object_by_id(z.id)
+		if (obj) then
+			local now_in = near_zone(obj, apos, radius)
+			if (now_in) and (zone_in_range[z.name] == false) and (not arm_obj) and route_open(z.name) then
+				arm_obj = obj
+			end
+			zone_in_range[z.name] = now_in
+		end
+	end
+
+	if (arm_obj) and not (any_countdown_active()) then
+		-- disable_msg false: run the countdown, not the instant path
+		msg_box_ui(arm_obj, false)
+	end
+end
+
+function on_game_start()
+	RegisterScriptCallback("actor_on_update", proximity_scan)
+	-- level change / save load recreates the actor: drop stale range state so the
+	-- arrival level starts fresh (every zone the actor spawns near stays suppressed)
+	-- rearm protection
+	RegisterScriptCallback("actor_on_net_destroy", clear_range_state)
 end

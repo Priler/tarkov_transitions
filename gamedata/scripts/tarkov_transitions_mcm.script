@@ -88,7 +88,7 @@ end
 local defaults = {
 	general = {
 		duration = 5,
-		activation_dist = 0, -- meters: arm the countdown within this radius of a zone (0 = only when physically inside)
+		activation_dist = 5, -- meters: arm the countdown within this radius of a zone (0 = only when physically inside)
 		fade = 0.3,          -- fade in/out duration, seconds (0 = instant)
 		pos_x = 512,         -- panel CENTER x
 		pos_y = 646,         -- panel CENTER y
@@ -101,23 +101,23 @@ local defaults = {
 		text_r = 20,
 		text_g = 24,
 		text_b = 14,
-		text_alpha = 100,    -- text opacity percent, independent of the panel background
+		text_alpha = 85,     -- text opacity percent, independent of the panel background
 		skin = 4,            -- index into SKINS (Gamma Lime)
 	},
 	companions = {
-		warn_duration = 15,  -- seconds the companion warning holds before they leave
+		warn_duration = 20,  -- seconds the companion warning holds before they leave
 		pos_x = 512,
 		pos_y = 560,
-		scale = 0.6,
-		alpha = 100,
+		scale = 0.5,
+		alpha = 75,
 		text_dx = 0,
-		text_dy = 0,
+		text_dy = 4,
 		text_font = 0,
-		text_size = 1,       -- Letterica 18
+		text_size = 2,       -- Letterica 25
 		text_r = 255,
 		text_g = 255,
 		text_b = 255,
-		text_alpha = 100,
+		text_alpha = 85,
 	},
 	debug = {
 		any_companions = false, -- warn/dismiss for ANY companion, not just paid (testing only!!!)

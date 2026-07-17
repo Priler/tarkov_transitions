@@ -150,25 +150,36 @@ end
 
 -- true if the actor is inside the zone OR within `radius` meters of its boundary
 local NEAR_STEP = 2.0
+-- probes walk toward the zone strictly horizontally and only sample heights within
+-- VERT_TOL of the actor's feet: same-storey reach
+-- prevents vertical zones from activating (like x18)
+local VERT_TOL = 1.0
+local VERT_STEP = 0.5
 
 local function near_zone(obj, apos, radius)
 	if (obj:inside(apos)) then return true end
 	if (radius <= 0) then return false end
 
 	local cpos = obj:position()
-	local dx, dy, dz = cpos.x - apos.x, cpos.y - apos.y, cpos.z - apos.z
-	local dist = math.sqrt(dx*dx + dy*dy + dz*dz)
-	if (dist < 0.001) then return true end
+	local dx, dz = cpos.x - apos.x, cpos.z - apos.z
+	local hdist = math.sqrt(dx*dx + dz*dz)
 	-- center too far to possibly be within reach even for a big zone: skip
-	if (dist - radius > 60) then return false end
+	if (hdist - radius > 60) then return false end
+	-- straight above or below the center: another storey, not a lateral approach
+	if (hdist < 0.001) then return false end
 
-	local inv = 1 / dist
-	dx, dy, dz = dx * inv, dy * inv, dz * inv
+	local inv = 1 / hdist
+	dx, dz = dx * inv, dz * inv
 	local probe = vector()
 	local d = NEAR_STEP
 	while (d <= radius) do
-		probe:set(apos.x + dx * d, apos.y + dy * d, apos.z + dz * d)
-		if (obj:inside(probe)) then return true end
+		local px, pz = apos.x + dx * d, apos.z + dz * d
+		local dy = -VERT_TOL
+		while (dy <= VERT_TOL) do
+			probe:set(px, apos.y + dy, pz)
+			if (obj:inside(probe)) then return true end
+			dy = dy + VERT_STEP
+		end
 		d = d + NEAR_STEP
 	end
 	return false
@@ -693,6 +704,10 @@ local function proximity_scan()
 	end
 
 	if (arm_obj) and not (any_countdown_active()) then
+		local cpos = arm_obj:position()
+		local hor = math.sqrt((cpos.x-apos.x)^2 + (cpos.z-apos.z)^2)
+		printf("tarkov_transitions: ARM base obj=%s dy=%s hor=%s", arm_obj:name(),
+			string.format("%.2f", cpos.y - apos.y), string.format("%.2f", hor))
 		-- disable_msg false: run the countdown, not the instant path
 		msg_box_ui(arm_obj, false)
 	end

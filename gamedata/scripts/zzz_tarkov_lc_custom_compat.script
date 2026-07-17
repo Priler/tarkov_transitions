@@ -20,13 +20,20 @@
 
 -- the mod's condlist gate is dist_to_actor_le(10), so match that radius here
 local TRIGGER_RADIUS = 10
+-- reject points on another storey / buried under the floor
+-- a same-floor point sits within VERT_MAX of the actor's feet, another level is farther in Y
+local VERT_MAX = 3.0
 
 -- captured before we override, called to perform the real jump on finish
 local orig_teleport = nil
 
+-- gate the vertical delta first, then match the mod's flat XZ trigger radius
 local function actor_inside(obj)
 	if not (obj and db.actor) then return false end
-	return obj:position():distance_to_sqr(db.actor:position()) <= TRIGGER_RADIUS * TRIGGER_RADIUS
+	local op, ap = obj:position(), db.actor:position()
+	if (math.abs(op.y - ap.y) > VERT_MAX) then return false end
+	local dx, dz = op.x - ap.x, op.z - ap.z
+	return (dx*dx + dz*dz) <= TRIGGER_RADIUS * TRIGGER_RADIUS
 end
 
 -- Normalize whatever the caller passes (client game_object, server object, raw
@@ -46,6 +53,12 @@ if (lc_custom and lc_custom.teleport_actor) then
 	orig_teleport = lc_custom.teleport_actor
 	lc_custom.teleport_actor = function(actor, obj)
 		local obj_id = to_obj_id(obj)
+		local dbg = obj_id and level.object_by_id(obj_id)
+		if (dbg and db.actor) then
+			printf("tarkov_transitions: ARM lc_custom_compat obj=%s dy=%s", dbg:name(), string.format("%.2f", dbg:position().y - db.actor:position().y))
+		end
+		-- vertically off (another storey / underground): do not fire :3
+		if not (actor_inside(obj_id and level.object_by_id(obj_id))) then return end
 		tarkov_transitions_countdown.start({
 			is_inside = function()
 				return actor_inside(obj_id and level.object_by_id(obj_id))

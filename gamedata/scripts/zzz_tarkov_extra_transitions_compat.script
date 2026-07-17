@@ -16,15 +16,28 @@
     Does nothing unless Extra is installed.
 --]]
 
+-- reject points on another storey / buried under the floor
+-- a same-floor point sits within VERT_MAX of the actor's feet, another level is farther in Y
+local VERT_MAX = 3.0
+
 -- Extra restrictors are physics objects, not space restrictors, so there is no :inside()
--- Match Extra's own proximity test: distance vs trigger_radius
+-- Match Extra's own proximity test (distance vs trigger_radius)
 local function actor_inside(obj)
 	if not (obj and db.actor) then return false end
+	local op, ap = obj:position(), db.actor:position()
+	if (math.abs(op.y - ap.y) > VERT_MAX) then return false end
 	local r = SYS_GetParam(2, obj:section(), "trigger_radius", 6)
-	return obj:position():distance_to_sqr(db.actor:position()) <= r * r
+	local dx, dz = op.x - ap.x, op.z - ap.z
+	return (dx*dx + dz*dz) <= r * r
 end
 
 local function show_countdown(obj_id)
+	local dbg = obj_id and level.object_by_id(obj_id)
+	if (dbg and db.actor) then
+		printf("tarkov_transitions: ARM extra_compat obj=%s dy=%s", dbg:name(), string.format("%.2f", dbg:position().y - db.actor:position().y))
+	end
+	-- vertically off (another storey / underground): no countdown
+	if not (actor_inside(obj_id and level.object_by_id(obj_id))) then return end
 	tarkov_transitions_countdown.start({
 		is_inside = function()
 			return actor_inside(obj_id and level.object_by_id(obj_id))

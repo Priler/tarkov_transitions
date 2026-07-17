@@ -15,8 +15,9 @@ local MOD_ID = "tarkov_transitions"
 -- the companion skin is 3:1
 -- 1024x768 canvas stretches to fit screen so width is aspect corrected at runtime
 local BASE_H = 220       -- panel height at scale 1.0 (virtual units)
-local FONT_H = 26        -- approx text height, for default vertical centering
 local ICON_FRAC = 0.26   -- general text start x as a fraction of the texture
+
+local DEBUG_LAYOUT = false
 
 local SKIN_DIR = "ui\\tarkov_transition\\"
 
@@ -52,23 +53,28 @@ end
 -- text_font selects the family while text_size indexes and clamps to its available sizes
 local FONT_FAMILIES = {
 	{ name = "Letterica", sizes = {
-		{ GetFontLetterica16Russian, "16" },
-		{ GetFontLetterica18Russian, "18" },
-		{ GetFontLetterica25,        "25" },
+		{ GetFontLetterica16Russian, "16", 16 },
+		{ GetFontLetterica18Russian, "18", 18 },
+		{ GetFontLetterica25,        "25", 25 },
 	}},
 	{ name = "Graffiti", sizes = {
-		{ GetFontGraffiti19Russian, "19" },
-		{ GetFontGraffiti22Russian, "22" },
-		{ GetFontGraffiti32Russian, "32" },
-		{ GetFontGraffiti50Russian, "50" },
+		{ GetFontGraffiti19Russian, "19", 19 },
+		{ GetFontGraffiti22Russian, "22", 22 },
+		{ GetFontGraffiti32Russian, "32", 32 },
+		{ GetFontGraffiti50Russian, "50", 50 },
 	}},
 	{ name = "Other", sizes = {
-		{ GetFontSmall,  "Small" },
-		{ GetFontMedium, "Medium" },
-		{ GetFontDI,     "DI" },
+		{ GetFontSmall,  "Small",  14 },
+		{ GetFontMedium, "Medium", 16 },
+		{ GetFontDI,     "DI",     22 },
 	}},
 }
 local MAX_SIZE_IDX = 3   -- widest family (Graffiti) has 4 sizes; slider span 0..3
+
+-- defaults are authored on a 2160p monitor
+-- at any other height we snap to the family size whose real pixels reproduce the same fraction of the resolution-scaling
+-- so shit looks identical on 1080p, 1440p and 4K
+local FONT_REF_H = 2160
 
 local function clampi(v, lo, hi)
 	v = math.floor((v or 0) + 0.5)
@@ -84,6 +90,19 @@ local function resolve_size(fam_idx, size_idx)
 	return fam.sizes[si + 1]
 end
 
+-- resolution-aware font pick
+local function pick_font(fam_idx, size_idx)
+	local fam = get_family(fam_idx)
+	local ref = resolve_size(fam_idx, size_idx)
+	local want = ref[3] * device().height / FONT_REF_H
+	local best, best_d
+	for i = 1, #fam.sizes do
+		local d = math.abs(fam.sizes[i][3] - want)
+		if (not best_d) or (d < best_d) then best, best_d = fam.sizes[i], d end
+	end
+	return best[1], best[3], want
+end
+
 -- shared layout keys
 local defaults = {
 	general = {
@@ -94,8 +113,8 @@ local defaults = {
 		pos_y = 646,         -- panel CENTER y
 		scale = 0.45,
 		alpha = 75,          -- panel background opacity percent
-		text_dx = 4,         -- text nudge from its default spot in the panel
-		text_dy = 4,
+		text_dx = 10,        -- text nudge from its default spot in the panel
+		text_dy = -4,
 		text_font = 0,       -- font family index (Letterica)
 		text_size = 2,       -- size index within the family (25)
 		text_r = 20,
@@ -168,7 +187,12 @@ function apply_layout(panel, fade, cat)
 	fade = fade or 1
 	local pr = PROFILES[cat]
 	local s = getv(cat, "scale")
-	local h = pr.base_h * s
+
+	-- pick the font first
+	local fam_idx, size_idx = getv(cat, "text_font"), getv(cat, "text_size")
+	local getter, font_px, want = pick_font(fam_idx, size_idx)
+	local snap = (want > 0) and (font_px / want) or 1
+	local h = pr.base_h * s * snap
 
 	-- correct width for the screen aspect so the texture is not stretched horizontally
 	local corr = (device().width / device().height) / (1024 / 768)
@@ -190,23 +214,33 @@ function apply_layout(panel, fade, cat)
 	panel.bg:SetWndSize(vector2():set(w, h))
 	panel.bg:SetTextureColor(GetARGB(a, 255, 255, 255))
 
-	-- bitmap font is a shared object; only re-set it when family/size changes
-	local fam_idx, size_idx = getv(cat, "text_font"), getv(cat, "text_size")
-	local fkey = clampi(fam_idx, 0, #FONT_FAMILIES - 1) * 100 + clampi(size_idx, 0, MAX_SIZE_IDX)
+	-- bitmap font is a shared object; only re-set it when family/size OR resolution
+	-- changes (the resolution-aware pick can land on a different bitmap size)
+	local fkey = clampi(fam_idx, 0, #FONT_FAMILIES - 1) * 1000 + font_px
 	if (panel._fkey ~= fkey) then
-		panel.label:SetFont(resolve_size(fam_idx, size_idx)[1]())
+		panel.label:SetFont(getter())
 		panel._fkey = fkey
+		if (DEBUG_LAYOUT) then
+			printf("tarkov_transitions: LAYOUT cat=%s res=%dx%d font_px=%d panelPx=%s ratio=%s",
+				cat, device().width, device().height, font_px,
+				string.format("%.1f", h / 768 * device().height),
+				string.format("%.3f", font_px / (h / 768 * device().height)))
+		end
 	end
 
-	-- large bounding box to prevent clipping with bigger font sizes
-	local ly = top + h / 2 - FONT_H / 2 + getv(cat, "text_dy")
+	-- center the text vertically using the ACTUAL glyph height (in virtual units)
+	local font_v = font_px / device().height * 768
+	local ly = top + (h - font_v) / 2 + getv(cat, "text_dy")
+
+	-- horizontal nudges are square units: divide by corr like the panel width does
+	local dx = getv(cat, "text_dx") / corr
 	if (pr.centered) then
 		-- centered label spans the panel width
-		panel.label:SetWndPos(vector2():set(left + getv(cat, "text_dx"), ly))
+		panel.label:SetWndPos(vector2():set(left + dx, ly))
 		panel.label:SetWndSize(vector2():set(w, 120))
 	else
 		-- default pos is right of the baked icon, offset by text_dx/dy
-		local lx = left + w * pr.icon_frac + getv(cat, "text_dx")
+		local lx = left + w * pr.icon_frac + dx
 		panel.label:SetWndPos(vector2():set(lx, ly))
 		panel.label:SetWndSize(vector2():set(w + 200, 120))
 	end
